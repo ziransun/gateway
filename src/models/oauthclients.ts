@@ -52,11 +52,22 @@ let oauthClients = new OAuthClients();
 oauthClients.register(
   new ClientRegistry(new URL('http://127.0.0.1:31338/callback'), 'test',
                      'Test OAuth Client', 'super secret', '/things:readwrite')
+                    /* new ClientRegistry(new URL('http://127.0.0.1:31338/callback'), 'test',
+                     'Test OAuth Client', 'super secret', '/things/virtual-things-0:readwrite /things/virtual-things-4:readwrite') */
+
+          /*           new ClientRegistry(new URL('http://127.0.0.1:31338/callback'), 'test',
+                     'Test OAuth Client', 'super secret', '/things/virtual-things-0:readwrite /things/virtual-things-4:readwrite') */
 );
 
 oauthClients.register(
-  new ClientRegistry(new URL('https://gateway.localhost/oauth/local-token-service'), 'local-token',
+   new ClientRegistry(new URL('https://gateway.localhost/oauth/local-token-service'), 'local-token',
                      'Local Token Service', 'super secret',
-                     '/things:readwrite')
+                     '/things:readwrite') 
+                 /*    new ClientRegistry(new URL('https://gateway.localhost/oauth/local-token-service'), 'local-token',
+                     'Local Token Service', 'super secret',
+                     '/things/virtual-things-0:readwrite /things/virtual-things-4:readwrite')  */
+         /*            new ClientRegistry(new URL('https://gateway.localhost/oauth/local-token-service'), 'local-token',
+                     'Local Token Service', 'super secret',
+                     '/things/virtual-things-0:readwrite /things/virtual-things-4:readwrite') */
 );
 export default oauthClients;
