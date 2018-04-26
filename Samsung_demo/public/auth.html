@@ -1,0 +1,55 @@
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="css/home.css" />
+</head>
+<body>
+    <div id="div_main_page_content">
+        
+        <div id="div_main_page_title">
+            <img id="img_main_title" src="assets/hometitle.png">
+        </div>
+        <br>
+        <br>
+        <br>
+        <br>
+        <br>
+        <br>
+        <br>
+        <br>
+        <div id="div_main_page_buttons">
+            <center>
+               <table>
+                    
+                 <tr>
+                            <td><a href="presentation.html"><img src="assets/presentation.png" class="but_main_page_button"></a></td>
+                            <td><img src="assets/fan.png" class="but_main_page_button"></a></td>    
+                            <td><img src="assets/light.png" class="but_main_page_button"></a></td>
+                    </tr>
+                    <tr>
+                            <td align="center"><button name ="button" id="tempButton" onclick="getValue()" value="temp">Temperature</button>
+                            <td align="center"><label class="switch"><input type="checkbox"><span class="slider round"></span></label></td>
+                            <td align="center"><label class="switch"><input type="checkbox" checked><span class="slider round"></span></label></td>
+                            
+
+                    </tr>
+
+                   
+            
+                </table>
+            </center>
+        </div>
+    </div>
+</body>
+
+<script src="socket.io.js"></script>
+<script>
+        var socket = io('http://localhost:31338');
+        function getValue() {
+            socket.emit('requestTemp', { my: 'data' });
+            socket.on('temperature', function (data) {
+                console.log(data);
+                document.getElementById('tempButton').innerHTML = data;
+            });
+        }
+        </script>
+</html>

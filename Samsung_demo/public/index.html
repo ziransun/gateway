@@ -1,0 +1,54 @@
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="css/home.css" />
+</head>
+<body>
+    <div id="div_main_page_content">
+        
+        <div id="div_main_page_title">
+            <img id="img_main_title" src="assets/hometitle.png">
+        </div>
+        
+        <br>
+        <br>
+        <br>
+        <br>
+        <div id="div_main_page_buttons">
+            <center>
+               <table>
+                    <div class="container">
+                        <label for="uname"><b>Username</b></label>
+                        <input type="text" placeholder="Enter Username" name="uname" required> <br>
+                  
+                        <label for="psw"><b>Password</b></label>
+                        <input type="password" placeholder="Enter Password" name="psw" required><br><br><br>
+                          
+                        
+                        <!--<a href="auth"></a><button type="submit" onclick="requestToken()">Login</button></a>-->
+                        <button type="submit" onclick="requestToken()">Get Token</button><br><br><br><br><br>
+
+
+                        <label for="token"><b>Granted Token</b></label>
+                        <input type="password" placeholder="Enter Granted Token" name="token" required><br><br><br>
+                        <a href="auth.html"><button>Enter SmartHome</button></a><br><br><br><br><br>
+                        
+
+                        <br>
+                        </div>
+            
+                </table>
+            </center>
+        </div>
+    </div>
+</body>
+
+<!--<script src="socket.io.js"></script>-->
+<script>
+         //var socket = io('http://localhost:31338');
+        function requestToken() {
+            window.open('http://localhost:31338/auth');
+
+        }
+
+        </script>
+</html>
