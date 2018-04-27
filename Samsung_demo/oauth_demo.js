@@ -16,7 +16,7 @@ clientServer.listen(port);
 let accessToken = '';
 const CLIENT_ID = 'HollyHoliday'; // 'hello' on 0.3
 const CLIENT_SECRET = 'super secret';
-const newLocal_1 = '/things/virtual-things-0:readwrite /things/virtual-things-4:readwrite';
+const newLocal_1 = '/things:readwrite';
 const newLocal = newLocal_1;
 // const REQUEST_SCOPE = '/things:readwrite'; // 'readwrite' on 0.3
 const REQUEST_SCOPE =
