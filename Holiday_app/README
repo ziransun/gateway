@@ -1,0 +1,7 @@
+1. start Gateway   npm start
+2. start auth server   node ./oauth_demo
+3. Go to http://localhost:31338/auth
+4. Get authorizated token
+5. Fetch things with the token, e.g.
+
+curl -v -H "Authorization: Bearer eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjlkMTgwM2E0LWFjMzktNGM4Mi1iYWE1LTFiMTFhYmUxYTRiNSJ9.eyJjbGllbnRfaWQiOiJ0ZXN0Iiwicm9sZSI6ImFjY2Vzc190b2tlbiIsInNjb3BlIjoiL3RoaW5nczpyZWFkd3JpdGUiLCJpYXQiOjE1MjQ0OTA5OTZ9.7-hthATbNG6xWjyKcsWqxVDsZjnvwVOF4Gwd7AEtmQct6vdF3N2tGchagyXD0RoWgxWiLmh9phyzD6LCFraVwg " -H "Accept: application/json" https://newlaptop2.mozilla-iot.org/things

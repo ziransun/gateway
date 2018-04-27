@@ -50,8 +50,9 @@ class OAuthClients {
 
 let oauthClients = new OAuthClients();
 oauthClients.register(
-  new ClientRegistry(new URL('http://127.0.0.1:31338/callback'), 'test',
-                     'Test OAuth Client', 'super secret', '/things:readwrite')
+   new ClientRegistry(new URL('http://127.0.0.1:31338/callback'), 'HollyHoliday',
+
+                     'HolidayMaker OAuth Client', 'super secret', '/things:readwrite')
 );
 
 oauthClients.register(

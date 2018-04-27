@@ -1,0 +1,115 @@
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="css/holidayhome.css" />
+</head>
+<body>
+    <div id="div_main_page_content">
+        
+        <div id="div_main_page_title">
+            <img id="img_main_title" src="assets/hometitle.png">
+        </div>
+        <br>
+        <br>
+        <br>
+        <br>
+        <br>
+        <br>
+        <br>
+        <br>
+        <div id="div_main_page_buttons">
+            <center>
+               <table>
+                    
+                 <tr>
+                            <td><img src="assets/temperature.png" class="but_main_page_button" id="temp" onclick="getTemp()"></td>
+                            <td><img src="assets/fan.png" class="but_main_page_button" id="fan" onclick="checkFan()"></td>    
+                            <td><img src="assets/light.png" class="but_main_page_button" id="light" onclick="checkLight()"></td>
+                    </tr>
+                    <tr>
+                            <td align="center"><button name ="button" id="tempButton">0°C</button>
+                            <td align="center"><label class="switch"><input type="checkbox" id="fanSwitch" onclick="switchFan()"><span class="slider round"></span></label></td>
+                            <td align="center"><label class="switch"><input type="checkbox" id="lightSwitch" onclick="switchLight()"><span class="slider round"></span></label></td>
+                    </tr>
+            
+                </table>
+            </center>
+        </div>
+    </div>
+</body>
+
+<script src="socket.io.js"></script>
+<script>
+        var socket = io('http://localhost:31338');
+        function getTemp() {
+            socket.emit('requestTemp', { my: 'data' });
+            socket.on('temperature', function (data) {
+                console.log(data);
+                data = data + '°C';
+                document.getElementById('tempButton').innerHTML = data;
+            });
+                socket.on('unauthorized', function() {
+                alert("You are NOT AUTHORIZED to check Temperature!");
+            });
+
+        }
+
+        function checkFan() {
+            socket.emit('requestFan', { my: 'data' });
+            socket.on('fanStatus', function (data) {
+                console.log(data);
+                document.getElementById("fanSwitch").checked = data;
+            });
+
+            socket.on('unauthorized', function() {
+                alert("You are NOT AUTHORIZED to check FAN status!");
+            });
+        }
+
+         function checkLight() {
+            socket.emit('requestLight', { my: 'data' });
+            socket.on('lightStatus', function (data) {
+                console.log(data);
+                document.getElementById("lightSwitch").checked = data;
+            });
+
+            socket.on('unauthorized', function() {
+                alert("You are NOT AUTHORIZED to check LIGHT status!");
+            });
+        }
+
+        function switchFan() {
+            if (document.getElementById("fanSwitch").checked == true)
+            {
+                socket.emit('switchFan', { "on": true });
+                console.log("turn fan on");
+            }
+            else
+            {
+                socket.emit('switchFan', { "on": false });
+                console.log("turn fan off");
+            }
+            socket.on('unauthorized', function() {
+                alert("You are NOT AUTHORIZED to control FAN!");
+            });
+        }
+
+         function switchLight() {
+            if (document.getElementById("lightSwitch").checked == true)
+            {
+                socket.emit('switchLight', { "on": true });
+                console.log("turn light on");
+            }
+            else
+            {
+                socket.emit('switchLight', { "on": false });
+                console.log("turn light off");
+            }
+
+            socket.on('unauthorized', function() {
+                alert("You are NOT AUTHORIZED to control LIGHT!");
+            });
+        }
+
+        window.onload = function(){ alert("Token granted. Access Devices?");}
+        </script>
+</html>

@@ -1,0 +1,25 @@
+{
+  "name": "holiday_app",
+  "version": "0.1.0",
+  "description": "A simple Node.js holiday app",
+  "main": "app_server.js",
+  "dependencies": {
+    "simple-oauth2": "^2.0.1",
+    "node-fetch": "^2.1.2",
+    "socket.io": "^2.1.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ziransun/gateway/tree/devel/demo/0.4.0/apps/holiday_app"
+  },
+  "keywords": [
+    "node",
+    "oauth",
+    "holiday"
+  ],
+  "author": "Ziran Sun",
+  "contributors": [
+    "Ziran Sun <ziran.sun@samsung.com>"
+  ],
+  "license": "Apache 2.0"
+}
