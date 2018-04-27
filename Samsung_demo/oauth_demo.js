@@ -3,13 +3,12 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const express = require('express');
 const http = require('http');
 const simpleOAuth2 = require('simple-oauth2');
-// const io = require('socket.io');
 
 const client = express();
 const port = 31338;
 
 const clientServer = http.createServer(client);
-const io = require('socket.io').listen(clientServer);
+// const io = require('socket.io').listen(clientServer);
 clientServer.listen(port);
 
 
@@ -98,7 +97,7 @@ fdG9rZW4iLCJzY29wZSI6Ii90aGluZ3M6cmVhZHdyaXRlIiwiaWF0IjoxNTIzNTQ5NTg1fQ.u-EemDPa
 4PVU1IBropD6SQRRtKj4X7tQ3Gpkyyjy42ImsULokMH77_XOBXU4vq4z8bA');
 xhr.send();
 */
-
+/*
 client.use('/static', express.static('node_modules'));
 
 // Handle connection
@@ -111,3 +110,4 @@ io.on('connection', function(socket) {
     console.log('I\'m listening');
   });
 });
+*/
