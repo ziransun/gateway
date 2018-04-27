@@ -51,6 +51,7 @@ class OAuthClients {
 let oauthClients = new OAuthClients();
 oauthClients.register(
    new ClientRegistry(new URL('http://127.0.0.1:31338/callback'), 'HollyHoliday',
+
                      'HolidayMaker OAuth Client', 'super secret', '/things/virtual-things-0:readwrite /things/virtual-things-4:readwrite')
 );
 
