@@ -32,7 +32,8 @@ const config = {
     secret: CLIENT_SECRET,
   },
   auth: {
-    tokenHost: 'https://127.0.0.1:4443/oauth',
+    // tokenHost: 'https://127.0.0.1:4443/oauth',
+    tokenHost: 'https://sosg.mozilla-iot.org:443/oauth',
   },
 };
 
