@@ -14,16 +14,10 @@ clientServer.listen(port);
 
 
 let accessToken = '';
-const CLIENT_ID = 'HollyHoliday'; // 'hello' on 0.3
+const CLIENT_ID = 'HollyHoliday';
 const CLIENT_SECRET = 'super secret';
-const newLocal_1 = '/things:readwrite';
-const newLocal = newLocal_1;
-// const REQUEST_SCOPE = '/things:readwrite'; // 'readwrite' on 0.3
-const REQUEST_SCOPE =
-  newLocal; // 'readwrite' on 0.3
-
-// const REQUEST_SCOPE = '/things/virtual-things-0:readwrite \
-// /things/virtual-things-4:readwrite'; // 'readwrite' on 0.3
+const newLocal = '/things:readwrite';
+const REQUEST_SCOPE = newLocal;
 
 const REQUEST_STATE = 'somethingrandom';
 
@@ -55,6 +49,8 @@ client.get('/auth', (req, res) => {
   }));
 });
 
+client.use(express.static('public'));
+
 client.get('/callback', (req, res) => {
   const code = req.query.code;
   console.log('query', req.query);
@@ -63,7 +59,7 @@ client.get('/callback', (req, res) => {
     const token = oauth2.accessToken.create(result);
     accessToken = token.token.access_token;
     console.log(accessToken);
-    res.json(token);
+    res.sendfile('public/auth.html');
   }).catch((err) => {
     res.status(400).json(err);
   });
@@ -107,7 +103,6 @@ function toText(res) {
 io.on('connection', function(socket) {
   console.log('Connected succesfully to the socket ...');
   accessToken = `Bearer ${accessToken}`;
-  // console.log(accessToken);
   thingsOptions.headers.Authorization = accessToken;
   switchOptions.headers.Authorization = accessToken;
   socket.on('requestTemp', function() {
@@ -171,7 +166,6 @@ io.on('connection', function(socket) {
 
   socket.on('switchLight', function(data) {
     thingsUrl = 'https://sosg.mozilla-iot.org/things/0/properties/on';
-    // data = {level: 20};
     switchOptions.body = JSON.stringify(data);
     console.log('switchOptions is:');
     console.log(switchOptions);

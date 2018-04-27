@@ -1,6 +1,6 @@
 <html>
 <head>
-    <link rel="stylesheet" type="text/css" href="css/home.css" />
+    <link rel="stylesheet" type="text/css" href="css/holidayhome.css" />
 </head>
 <body>
     <div id="div_main_page_content">
@@ -23,8 +23,6 @@
                         <label for="psw"><b>Password</b></label>
                         <input type="password" placeholder="Enter Password" name="psw" required><br><br><br>
                           
-                        
-                        <!--<a href="auth"></a><button type="submit" onclick="requestToken()">Login</button></a>-->
                         <button type="submit" onclick="requestToken()">Get Token</button><br><br><br><br><br>
 
                         <br>
@@ -40,10 +38,7 @@
         function requestToken() {
             window.open('http://localhost:31338/auth');
             window.open(window.location, '_self', '');
-            // window.opener=self;
-            //window.open('','_parent','');
             window.close();
-          // window.open(window.location, '_parent', '').close();
         }
 
         </script>
