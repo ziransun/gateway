@@ -16,8 +16,7 @@ clientServer.listen(port);
 let accessToken = '';
 const CLIENT_ID = 'HollyHoliday';
 const CLIENT_SECRET = 'super secret';
-const newLocal = '/things:readwrite';
-const REQUEST_SCOPE = newLocal;
+const REQUEST_SCOPE = '/things:readwrite';
 
 const REQUEST_STATE = 'somethingrandom';
 

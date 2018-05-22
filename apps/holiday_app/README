@@ -16,10 +16,23 @@ the settings in app_server.js. e.g.
 
 Steps to set up the holiday app: 
 
-1. Please replace the gateway address in app_server.js to your own. 
+1. Install socket.io
 
-2. start auth server   node ./app_server.js
-3. Go to http://localhost:31338
+npm install socket.io 
+
+Then come to the home directory of Gateway, run
+
+yarn
+
+You might need to repeat above steps at your gateway server code as
+
+
+2. Please replace the gateway address in app_server.js to your own. 
+
+3. start auth server   node ./app_server.js
+4. Go to http://localhost:31338
+
+>>>>>>> c7b67ce... Update README and add package.json.
 enter username & password 
 username: holidaymaker
 password: secret
