@@ -1,7 +1,31 @@
-1. start Gateway   npm start
-2. start auth server   node ./oauth_demo
-3. Go to http://localhost:31338/auth
-4. Get authorizated token
-5. Fetch things with the token, e.g.
+Assumption:
 
-curl -v -H "Authorization: Bearer eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjlkMTgwM2E0LWFjMzktNGM4Mi1iYWE1LTFiMTFhYmUxYTRiNSJ9.eyJjbGllbnRfaWQiOiJ0ZXN0Iiwicm9sZSI6ImFjY2Vzc190b2tlbiIsInNjb3BlIjoiL3RoaW5nczpyZWFkd3JpdGUiLCJpYXQiOjE1MjQ0OTA5OTZ9.7-hthATbNG6xWjyKcsWqxVDsZjnvwVOF4Gwd7AEtmQct6vdF3N2tGchagyXD0RoWgxWiLmh9phyzD6LCFraVwg " -H "Accept: application/json" https://newlaptop2.mozilla-iot.org/things
+Gateway is up running. In our case, we have gateway
+running at.
+https://sosg.mozilla-iot.org/
+
+
+In gateway code at  src/models/oauthclients.ts, we have CLIENT_ID, CLIENT_SECRET set in corresponding to
+the settings in app_server.js. e.g.
+
+" oauthClients.register(
+   new ClientRegistry(new URL('http://127.0.0.1:31338/callback'), 'HollyHoliday',
+
+                     'HolidayMaker OAuth Client', 'super secret', '/things:readwrite')
+); "
+
+Steps to set up the holiday app: 
+
+1. Please replace the gateway address in app_server.js to your own. 
+
+2. start auth server   node ./app_server.js
+3. Go to http://localhost:31338
+enter username & password 
+username: holidaymaker
+password: secret
+
+press "Get Token" button
+
+Once token is granted, you will be directed to the sensor access page. Have fun! 
+
+
