@@ -1,0 +1,45 @@
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="css/holidayhome.css" />
+</head>
+<body>
+    <div id="div_main_page_content">
+        
+        <div id="div_main_page_title">
+            <img id="img_main_title" src="assets/hometitle.png">
+        </div>
+        
+        <br>
+        <br>
+        <br>
+        <br>
+        <div id="div_main_page_buttons">
+            <center>
+               <table>
+                    <div class="container">
+                        <label for="uname"><b>Username</b></label>
+                        <input type="text" placeholder="Enter Username" name="uname" required> <br>
+                  
+                        <label for="psw"><b>Password</b></label>
+                        <input type="password" placeholder="Enter Password" name="psw" required><br><br><br>
+                          
+                        <button type="submit" onclick="requestToken()">Get Token</button><br><br><br><br><br>
+
+                        <br>
+                        </div>
+            
+                </table>
+            </center>
+        </div>
+    </div>
+</body>
+
+<script>
+        function requestToken() {
+            window.open('http://localhost:31338/auth');
+            window.open(window.location, '_self', '');
+            window.close();
+        }
+
+        </script>
+</html>
