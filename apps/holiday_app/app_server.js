@@ -14,6 +14,8 @@ clientServer.listen(port);
 
 
 let accessToken = '';
+// TODO: Replace gateway address to your own
+const BASE_URL = 'http://gateway.local:8080';
 const CLIENT_ID = 'HollyHoliday';
 const CLIENT_SECRET = 'super secret';
 const REQUEST_SCOPE = '/things:readwrite';
@@ -26,7 +28,7 @@ const config = {
     secret: CLIENT_SECRET,
   },
   auth: {
-    tokenHost: 'https://sosg.mozilla-iot.org:443/oauth',
+    tokenHost: BASE_URL + '/oauth'
   },
 };
 
@@ -105,7 +107,7 @@ io.on('connection', function(socket) {
   thingsOptions.headers.Authorization = accessToken;
   switchOptions.headers.Authorization = accessToken;
   socket.on('requestTemp', function() {
-    thingsUrl = 'https://sosg.mozilla-iot.org/things/1/properties/level'; // Replace gateway address to your own
+    thingsUrl = BASE_URL + '/things/1/properties/level';
     fetch(thingsUrl, thingsOptions).then(toText)
       .then(function(thingBody) {
         if (thingBody.indexOf('access_token used out of scope') !== -1) {
@@ -119,7 +121,7 @@ io.on('connection', function(socket) {
   });
 
   socket.on('requestFan', function() {
-    thingsUrl = 'https://sosg.mozilla-iot.org/things/gpio-5/properties/on'; // Replace gateway address to your own
+    thingsUrl = BASE_URL + '/things/gpio-5/properties/on';
     fetch(thingsUrl, thingsOptions).then(toText)
       .then(function(thingBody) {
         if (thingBody.indexOf('access_token used out of scope') !== -1) {
@@ -133,7 +135,7 @@ io.on('connection', function(socket) {
   });
 
   socket.on('requestLight', function() {
-    thingsUrl = 'https://sosg.mozilla-iot.org/things/0/properties/on'; // Replace gateway address to your own
+    thingsUrl= BASE_URL + '/things/0/properties/on';
     fetch(thingsUrl, thingsOptions).then(toText)
       .then(function(thingBody) {
         if (thingBody.indexOf('access_token used out of scope') !== -1) {
@@ -147,7 +149,7 @@ io.on('connection', function(socket) {
   });
 
   socket.on('switchFan', function(data) {
-    thingsUrl = 'https://sosg.mozilla-iot.org/things/gpio-5/properties/on'; // Replace gateway address to your own
+    thingsUrl = BASE_URL + '/things/gpio-5/properties/on';
     switchOptions.body = JSON.stringify(data);
     fetch(thingsUrl, switchOptions)
       .then((function(response) {
@@ -164,7 +166,7 @@ io.on('connection', function(socket) {
   });
 
   socket.on('switchLight', function(data) {
-    thingsUrl = 'https://sosg.mozilla-iot.org/things/0/properties/on'; // Replace gateway address to your own
+    thingsUrl = BASE_URL + '/things/0/properties/on';
     switchOptions.body = JSON.stringify(data);
     console.log('switchOptions is:');
     console.log(switchOptions);
