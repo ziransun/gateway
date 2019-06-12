@@ -1,5 +1,5 @@
 /*
- * Things Gateway Test Configuration.
+ * WebThings Gateway Test Configuration.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -20,9 +20,13 @@ module.exports = {
   },
   behindForwarding: false,
   addonManager: {
-    listUrl: 'https://raw.githubusercontent.com/mozilla-iot/addon-list/master/test.json',
+    testAddons: true,
+  },
+  database: {
+    removeBeforeOpen: true,
   },
   ipc: {
     protocol: 'inproc',
   },
+  oauthTestClients: true,
 };

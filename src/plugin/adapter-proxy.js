@@ -56,9 +56,9 @@ class AdapterProxy extends Adapter {
     this.sendMsg(Constants.CANCEL_REMOVE_THING, {deviceId: device.id});
   }
 
-  sendMsg(methodType, data) {
+  sendMsg(methodType, data, deferred) {
     data.adapterId = this.id;
-    return this.plugin.sendMsg(methodType, data);
+    return this.plugin.sendMsg(methodType, data, deferred);
   }
 
   /**
@@ -77,6 +77,70 @@ class AdapterProxy extends Adapter {
       adapterId: this.id,
     });
     return this.unloadCompletedPromise.promise;
+  }
+
+  /**
+   * Set the PIN for the given device.
+   *
+   * @param {String} deviceId ID of the device
+   * @param {String} pin PIN to set
+   *
+   * @returns a promise which resolves when the PIN has been set.
+   */
+  setPin(deviceId, pin) {
+    return new Promise((resolve, reject) => {
+      console.log('AdapterProxy: setPin:', pin, 'for:', deviceId);
+
+      const device = this.getDevice(deviceId);
+      if (!device) {
+        reject('Device not found');
+        return;
+      }
+
+      const deferredSet = new Deferred();
+
+      deferredSet.promise.then((device) => {
+        resolve(device);
+      }).catch(() => {
+        reject();
+      });
+
+      this.sendMsg(Constants.SET_PIN, {deviceId, pin}, deferredSet);
+    });
+  }
+
+  /**
+   * Set the credentials for the given device.
+   *
+   * @param {String} deviceId ID of the device
+   * @param {String} username Username to set
+   * @param {String} password Password to set
+   *
+   * @returns a promise which resolves when the credentials have been set.
+   */
+  setCredentials(deviceId, username, password) {
+    return new Promise((resolve, reject) => {
+      console.log('AdapterProxy: setCredentials:', username, password, 'for:',
+                  deviceId);
+
+      const device = this.getDevice(deviceId);
+      if (!device) {
+        reject('Device not found');
+        return;
+      }
+
+      const deferredSet = new Deferred();
+
+      deferredSet.promise.then((device) => {
+        resolve(device);
+      }).catch(() => {
+        reject();
+      });
+
+      this.sendMsg(Constants.SET_CREDENTIALS,
+                   {deviceId, username, password},
+                   deferredSet);
+    });
   }
 
   // The following methods are added to support using the

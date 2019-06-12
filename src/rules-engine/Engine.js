@@ -4,6 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const Database = require('./Database');
 const Rule = require('./Rule');
 
@@ -11,9 +13,6 @@ const Rule = require('./Rule');
  * An engine for running and managing list of rules
  */
 class Engine {
-  constructor() {
-  }
-
   /**
    * Get a list of all current rules
    * @return {Promise<Array<Rule>>} rules
@@ -22,9 +21,9 @@ class Engine {
     let rulesPromise = Promise.resolve(this.rules);
 
     if (!this.rules) {
-      rulesPromise = Database.getRules().then(async ruleDescs => {
+      rulesPromise = Database.getRules().then(async (ruleDescs) => {
         this.rules = {};
-        for (let ruleId in ruleDescs) {
+        for (const ruleId in ruleDescs) {
           ruleDescs[ruleId].id = parseInt(ruleId);
           this.rules[ruleId] = Rule.fromDescription(ruleDescs[ruleId]);
           await this.rules[ruleId].start();
@@ -33,8 +32,8 @@ class Engine {
       });
     }
 
-    return rulesPromise.then(rules => {
-      return Object.keys(rules).map(ruleId => {
+    return rulesPromise.then((rules) => {
+      return Object.keys(rules).map((ruleId) => {
         return rules[ruleId];
       });
     });
@@ -48,7 +47,7 @@ class Engine {
   getRule(id) {
     const rule = this.rules[id];
     if (!rule) {
-      return Promise.reject(new Error('Rule ' + id + ' does not exist'));
+      return Promise.reject(new Error(`Rule ${id} does not exist`));
     }
     return Promise.resolve(rule);
   }
@@ -74,7 +73,7 @@ class Engine {
    */
   async updateRule(ruleId, rule) {
     if (!this.rules[ruleId]) {
-      return Promise.reject(new Error('Rule ' + ruleId + ' does not exist'));
+      return Promise.reject(new Error(`Rule ${ruleId} does not exist`));
     }
     rule.id = ruleId;
     await Database.updateRule(ruleId, rule.toDescription());
@@ -92,7 +91,7 @@ class Engine {
   deleteRule(ruleId) {
     if (!this.rules[ruleId]) {
       return Promise.reject(
-        new Error('Rule ' + ruleId + ' already does not exist'));
+        new Error(`Rule ${ruleId} does not exist`));
     }
     return Database.deleteRule(ruleId).then(() => {
       this.rules[ruleId].stop();

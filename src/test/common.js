@@ -1,18 +1,20 @@
 /*
- * Things Gateway common test setup.
+ * WebThings Gateway common test setup.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-/* globals expect */
+/* globals expect, jest */
 
 process.env.NODE_ENV = 'test';
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const Database = require('../db');
 const Actions = require('../models/actions');
+const Events = require('../models/events');
+const Logs = require('../models/logs');
+const mDNSserver = require('../mdns-server');
 const Things = require('../models/things');
 const UserProfile = require('../user-profile');
 const e2p = require('event-to-promise');
@@ -29,42 +31,42 @@ if (debugJasmine) {
   // trying to debug interactions between the various jest processes
   // which are running the tests.
   jasmine.getEnv().addReporter({
-    jasmineStarted: function(_suiteInfo) {
+    jasmineStarted: (_suiteInfo) => {
       const process = require('process');
       console.log('=====', process.pid, 'jasmineStarted =====');
     },
-    jasmineDone: function() {
+    jasmineDone: () => {
       const process = require('process');
       console.log('=====', process.pid, 'jasmineDone =====');
     },
-    suiteStarted: function(result) {
+    suiteStarted: (result) => {
       const process = require('process');
       console.log('=====', process.pid, 'suiteStarted',
                   result.description, '=====');
     },
-    suiteDone: function(result) {
+    suiteDone: (result) => {
       const process = require('process');
       console.log('=====', process.pid, 'suiteDone',
                   result.description, '=====');
     },
-    specStarted: function(result) {
+    specStarted: (result) => {
       const process = require('process');
       console.log('=====', process.pid, 'specStarted',
                   result.description, '=====');
     },
-    specDone: function(result) {
+    specDone: (result) => {
       const process = require('process');
       console.log('=====', process.pid, 'specDone',
                   result.description, '=====');
     },
   });
 
-  var origConsole = console.log;
+  const origConsole = console.log;
   console.log = function() {
-    let pidStr = ('     ' + process.pid).slice(-5) + ': ';
+    const pidStr = `${(`     ${process.pid}`).slice(-5)}: `;
     Array.prototype.unshift.call(arguments, pidStr);
     origConsole.apply(this, arguments);
-  }
+  };
 }
 
 expect.extend({
@@ -74,16 +76,16 @@ expect.extend({
       pass,
       message,
     };
-  }
+  },
 });
 
-let {server, httpServer, serverStartup} = require('../app');
-global.server = server;
+const {servers, serverStartup} = require('../app');
+global.server = servers.https;
 
-var addonManager = require('../addon-manager');
+const addonManager = require('../addon-manager');
 
 function mockAdapter() {
-  var adapter = addonManager.getAdapter('mock-adapter');
+  const adapter = addonManager.getAdapter('mock-adapter');
   expect(adapter).not.toBeUndefined();
   return adapter;
 }
@@ -102,8 +104,10 @@ function removeTestManifest() {
 
 beforeAll(async () => {
   removeTestManifest();
+
   // The server may not be done with reading tunneltoken and related settings
-  await serverStartup;
+  await serverStartup.promise;
+  console.log(servers.http.address(), servers.https.address());
 
   // If the mock adapter is a plugin, then it may not be available
   // immediately, so wait for it to be available.
@@ -117,21 +121,30 @@ afterEach(async () => {
     await adapter.clearState();
   }
   Actions.clearState();
+  Events.clearState();
   Things.clearState();
   await Database.deleteEverything();
 });
 
 afterAll(async () => {
+  Logs.close();
   await addonManager.unloadAddons();
-  server.close();
-  httpServer.close();
+  servers.https.close();
+  servers.http.close();
+  mDNSserver.server.setState(false);
   await Promise.all([
-    e2p(server, 'close'),
-    e2p(httpServer, 'close')
+    e2p(servers.https, 'close'),
+    e2p(servers.http, 'close'),
   ]);
   removeTestManifest();
 });
 
+// Some tests take really long if Travis is having a bad day
+jest.setTimeout(60000);
+
 module.exports = {
-  mockAdapter, server, chai, httpServer,
+  mockAdapter,
+  server: servers.https,
+  chai,
+  httpServer: servers.http,
 };

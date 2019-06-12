@@ -2,42 +2,55 @@ const effects = require('../../rules-engine/effects');
 
 const pulseEffect = {
   property: {
-    name: 'on',
     type: 'boolean',
-    href: '/things/light1/properties/on'
+    thing: 'light1',
+    id: 'on',
   },
   type: 'PulseEffect',
-  value: true
+  value: true,
 };
 
 const setEffect = {
   property: {
-    name: 'temp',
     type: 'number',
-    href: '/things/thermostat/properties/temp',
+    thing: 'thermostat',
+    id: 'temp',
     unit: 'celsius',
-    description: 'thermostat setpoint'
+    description: 'thermostat setpoint',
   },
   type: 'SetEffect',
-  value: 30
+  value: 30,
 };
 
-describe('effects', function() {
+const bothEffect = {
+  effects: [
+    pulseEffect,
+    setEffect,
+  ],
+  type: 'MultiEffect',
+};
+
+describe('effects', () => {
   it('should parse a PulseEffect', () => {
-    let effect = effects.fromDescription(pulseEffect);
+    const effect = effects.fromDescription(pulseEffect);
     expect(effect).toMatchObject(pulseEffect);
   });
 
   it('should parse a SetEffect', () => {
-    let effect = effects.fromDescription(setEffect);
+    const effect = effects.fromDescription(setEffect);
     expect(effect).toMatchObject(setEffect);
+  });
+
+  it('should parse a MultiEffect', () => {
+    const effect = effects.fromDescription(bothEffect);
+    expect(effect).toMatchObject(bothEffect);
   });
 
   it('should reject an unknown effect type', () => {
     let err = null;
     try {
       effects.fromDescription({type: 'LimaEffect'});
-    } catch(e) {
+    } catch (e) {
       err = e;
     }
     expect(err).toBeTruthy();
@@ -51,7 +64,7 @@ describe('effects', function() {
         pulseEffect,
         {value: 12}
       ));
-    } catch(e) {
+    } catch (e) {
       err = e;
     }
     expect(err).toBeTruthy();
@@ -60,14 +73,14 @@ describe('effects', function() {
   it('should reject an effect without a property', () => {
     let err = null;
     try {
-      let brokenEffect = Object.assign(
+      const brokenEffect = Object.assign(
         {},
         setEffect
       );
       delete brokenEffect.property;
 
       effects.fromDescription(brokenEffect);
-    } catch(e) {
+    } catch (e) {
       err = e;
     }
     expect(err).toBeTruthy();

@@ -4,12 +4,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const assert = require('assert');
-const fetch = require('node-fetch');
-const Settings = require('../models/settings');
+const AddonManager = require('../addon-manager');
+const Constants = require('../constants');
+const Things = require('../models/things');
 const EventEmitter = require('events').EventEmitter;
 const Events = require('./Events');
-const ThingConnection = require('./ThingConnection');
 
 /**
  * Utility to support operations on Thing's properties
@@ -22,35 +24,33 @@ class Property extends EventEmitter {
   constructor(desc) {
     super();
 
-    this.originator = new Error().stack;
-
     assert(desc.type);
-    assert(desc.href);
+    assert(desc.thing);
+    assert(desc.id);
 
     this.type = desc.type;
-    this.href = desc.href;
+    this.thing = desc.thing;
+    this.id = desc.id;
+
     if (desc.unit) {
       this.unit = desc.unit;
     }
     if (desc.description) {
       this.description = desc.description;
     }
-    const parts = this.href.split('/');
-    this.name = parts[parts.length - 1];
 
-    this.onMessage = this.onMessage.bind(this);
-    let thingHref = this.href.split('/properties')[0];
-    this.thingConn = new ThingConnection(thingHref, this.onMessage);
+    this.onPropertyChanged = this.onPropertyChanged.bind(this);
+    this.onThingAdded = this.onThingAdded.bind(this);
   }
 
   /**
    * @return {PropertyDescription}
    */
   toDescription() {
-    let desc = {
+    const desc = {
       type: this.type,
-      href: this.href,
-      name: this.name
+      thing: this.thing,
+      id: this.id,
     };
     if (this.unit) {
       desc.unit = this.unit;
@@ -62,80 +62,75 @@ class Property extends EventEmitter {
   }
 
   /**
-   * @return {String} full property href
-   */
-  async getHref() {
-    let href = await Settings.get('RulesEngine.gateway') + this.href;
-    return href;
-  }
-
-  /**
-   * @return {Promise<Object>} headers for JWT bearer auth
-   */
-  async headerAuth() {
-    const jwt = await Settings.get('RulesEngine.jwt');
-    if (jwt) {
-      return {
-        Authorization: 'Bearer ' + jwt
-      };
-    } else {
-      return {};
-    }
-  }
-
-  /**
-   * @return {Promise} resolves to property's value
+   * @return {Promise} resolves to property's value or undefined if not found
    */
   async get() {
-    console.info('property get', this.name);
-    const res = await fetch(await this.getHref(), {
-      headers: Object.assign({
-        'Accept': 'application/json'
-      }, await this.headerAuth()),
-    });
-    const data = await res.json();
-
-    console.info('property got', data);
-    return data[this.name]
+    try {
+      return await Things.getThingProperty(this.thing, this.id);
+    } catch (e) {
+      console.warn('Rule get failed', e);
+    }
   }
 
   /**
    * @param {any} value
-   * @return {Promise} resolves if property is set to value
+   * @return {Promise} resolves when set is done
    */
-  async set(value) {
-    let data = {};
-    data[this.name] = value;
-    console.info('property set', data);
-    return fetch(await this.getHref(), {
-      method: 'PUT',
-      headers: Object.assign({
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      }, await this.headerAuth()),
-      body: JSON.stringify(data),
-      cors: true
+  set(value) {
+    return Things.setThingProperty(this.thing, this.id, value).catch((e) => {
+      console.warn('Rule set failed, retrying once', e);
+      return Things.setThingProperty(this.thing, this.id, value);
+    }).catch((e) => {
+      console.warn('Rule set failed completely', e);
     });
   }
 
   async start() {
-    await this.thingConn.start();
-  }
+    AddonManager.on(Constants.PROPERTY_CHANGED, this.onPropertyChanged);
 
-  onMessage(msg) {
-    if (msg.messageType === 'propertyStatus') {
-      if (msg.data.hasOwnProperty(this.name)) {
-        console.info('emit', {
-          event: Events.VALUE_CHANGED,
-          data: msg.data[this.name]
-        });
-        this.emit(Events.VALUE_CHANGED, msg.data[this.name]);
-      }
+    try {
+      await this.getInitialValue();
+    } catch (_e) {
+      AddonManager.on(Constants.THING_ADDED, this.onThingAdded);
     }
   }
 
+  async getInitialValue() {
+    const initialValue = await this.get();
+    if (typeof initialValue === 'undefined') {
+      throw new Error('Did not get a real value');
+    }
+    this.emit(Events.VALUE_CHANGED, initialValue);
+  }
+
+  /**
+   * Listener for AddonManager's THING_ADDED event
+   * @param {String} thing - thing id
+   */
+  onThingAdded(thing) {
+    if (thing.id !== this.thing) {
+      return;
+    }
+    this.getInitialValue().catch((e) => {
+      console.warn('Rule property unable to get value', e);
+    });
+  }
+
+  onPropertyChanged(property) {
+    if (property.device.id !== this.thing) {
+      return;
+    }
+    if (property.name !== this.id) {
+      return;
+    }
+    this.emit(Events.VALUE_CHANGED, property.value);
+  }
+
   stop() {
-    this.thingConn.stop();
+    AddonManager.removeListener(Constants.PROPERTY_CHANGED,
+                                this.onPropertyChanged);
+    AddonManager.removeListener(Constants.THING_ADDED,
+                                this.onThingAdded);
   }
 }
 

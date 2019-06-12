@@ -1,19 +1,38 @@
+'use strict';
+
 import { URL } from 'url';
 import {Scope, ClientId, ClientRegistry} from '../oauth-types';
+const config = require('config');
 const Database = require('../db');
 
 
 class OAuthClients {
-  private clients = new Map();
+  private clients: Map<string, Array<ClientRegistry>> = new Map();
   constructor() {
   }
 
   register(client: ClientRegistry) {
-    this.clients.set(client.id, client);
+    if (this.clients.get(client.id)) {
+      this.clients.get(client.id)!.push(client);
+    } else {
+      this.clients.set(client.id, [client]);
+    }
   }
 
-  get(id: string) {
-    return this.clients.get(id);
+  get(id: string, redirectUri: URL|undefined): ClientRegistry|undefined {
+    const clients = this.clients.get(id);
+    if (!clients) {
+      return;
+    }
+    if (!redirectUri) {
+      return clients[0];
+    }
+    for (let client of clients) {
+      if (client.redirect_uri.href === redirectUri.href) {
+        return client;
+      }
+    }
+    return clients[0];
   }
 
   async getAuthorized(userId: number): Promise<Array<ClientRegistry>> {
@@ -30,7 +49,11 @@ class OAuthClients {
         await Database.deleteJSONWebTokenByKeyId(jwt.keyId);
         continue;
       }
-      authorized.set(payload.client_id, this.clients.get(payload.client_id));
+      const defaultClient = this.clients.get(payload.client_id)![0];
+      if (!defaultClient) {
+        continue;
+      }
+      authorized.set(payload.client_id, defaultClient);
     }
 
     return Array.from(authorized.values());
@@ -49,9 +72,38 @@ class OAuthClients {
 }
 
 let oauthClients = new OAuthClients();
+
+if (config.get('oauthTestClients')) {
+  oauthClients.register(
+    new ClientRegistry(new URL('http://127.0.0.1:31338/callback'), 'test',
+                       'Test OAuth Client', 'super secret', '/things:readwrite')
+  );
+
+  oauthClients.register(
+    new ClientRegistry(new URL('http://127.0.0.1:31338/bonus-entry'), 'test',
+                       'Test OAuth Client', 'other secret', '/things:readwrite')
+  );
+
+  oauthClients.register(
+    new ClientRegistry(new URL('http://localhost:8888/callback'), 'mycroft',
+                       'Mycroft', 'bDaQN6yDgI0GlvJL2UVcIAb4M8c', '/things:readwrite')
+  );
+}
+
 oauthClients.register(
-  new ClientRegistry(new URL('http://127.0.0.1:31338/callback'), 'hello',
-                     'Hello', 'super secret', 'readwrite')
+  new ClientRegistry(new URL('https://gateway.localhost/oauth/local-token-service'), 'local-token',
+                     'Local Token Service', 'super secret',
+                     '/things:readwrite')
+);
+
+oauthClients.register(
+  new ClientRegistry(new URL('https://api.mycroft.ai/v1/auth/callback'), 'mycroft',
+                     'Mycroft', 'bDaQN6yDgI0GlvJL2UVcIAb4M8c', '/things:readwrite')
+);
+
+oauthClients.register(
+  new ClientRegistry(new URL('https://api-test.mycroft.ai/v1/auth/callback'), 'mycroft',
+                     'Mycroft', 'bDaQN6yDgI0GlvJL2UVcIAb4M8c', '/things:readwrite')
 );
 
 export default oauthClients;

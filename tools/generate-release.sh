@@ -11,8 +11,19 @@ if [ ! -e "package.json" ]; then
   exit 1
 fi
 
-yarn
+git init .
+git config user.email "temporary@example.com"
+git config user.name "Temporary"
+git add .
+git commit -m "Temporary"
 git clone ./ gateway
+cd gateway || exit 1
+rm -fr .git
+cp -r ../node_modules ./
+npm install
+./node_modules/.bin/webpack
+rm -fr ./node_modules
+cd .. || exit 1
 tar czf gateway.tar.gz gateway
 rm -fr gateway
 ./tools/create-release-archives.sh

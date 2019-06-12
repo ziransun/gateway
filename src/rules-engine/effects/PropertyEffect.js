@@ -4,6 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const Property = require('../Property');
 const Effect = require('./Effect');
 
@@ -25,7 +27,7 @@ class PropertyEffect extends Effect {
    */
   toDescription() {
     return Object.assign(super.toDescription(), {
-      property: this.property.toDescription()
+      property: this.property.toDescription(),
     });
   }
 }

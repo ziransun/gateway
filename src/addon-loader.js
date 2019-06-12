@@ -10,12 +10,17 @@
 
 'use strict';
 
-var config = require('config');
+const UserProfile = require('./user-profile');
+UserProfile.init();
+
+const config = require('config');
 const Constants = require('./constants');
+const dynamicRequire = require('./dynamic-require');
 const GetOpt = require('node-getopt');
 const PluginClient = require('./plugin/plugin-client');
 const db = require('./db');
 const Settings = require('./models/settings');
+const sleep = require('./sleep');
 const fs = require('fs');
 const path = require('path');
 
@@ -23,7 +28,6 @@ const path = require('path');
 db.open();
 
 async function loadAddon(addonPath, verbose) {
-
   // Skip if there's no package.json file.
   const packageJson = path.join(addonPath, 'package.json');
   if (!fs.lstatSync(packageJson).isFile()) {
@@ -49,61 +53,85 @@ async function loadAddon(addonPath, verbose) {
       `Failed to parse package.json: ${packageJson}\n${e}`;
     return Promise.reject(err);
   }
-  let packageName = manifest.name;
 
   // Verify API version.
   const apiVersion = config.get('addonManager.api');
   if (manifest.moziot.api.min > apiVersion ||
       manifest.moziot.api.max < apiVersion) {
-    return Promise.reject(
+    console.error(
       `API mismatch for package: ${manifest.name}\n` +
       `Current: ${apiVersion} ` +
       `Supported: ${manifest.moziot.api.min}-${manifest.moziot.api.max}`);
+
+    const err =
+      `Failed to start ${manifest.display_name} add-on: API version mismatch`;
+    return Promise.reject(err);
   }
+
+  const packageName = manifest.name;
+
+  const pluginClient = new PluginClient(packageName, {verbose});
+
+  let addonManagerProxy;
+  const pluginClientPromise = pluginClient.register().then((proxy) => {
+    addonManagerProxy = proxy;
+  }).catch((e) => {
+    console.error(e);
+    const err = `Failed to register package: ${manifest.name} with gateway`;
+    return Promise.reject(err);
+  });
+
+  const fail = (message) => {
+    return pluginClientPromise.then(() => {
+      addonManagerProxy.sendError(message);
+      return sleep(200);
+    }).then(() => {
+      addonManagerProxy.unloadPlugin();
+      return sleep(200);
+    }).then(() => {
+      process.exit(Constants.DONT_RESTART_EXIT_CODE);
+    });
+  };
 
   // Get any saved settings for this add-on.
   const key = `addons.${manifest.name}`;
-  let savedSettings = await Settings.get(key);
-  let newSettings = Object.assign({}, manifest);
+  const savedSettings = await Settings.get(key);
+  const newSettings = Object.assign({}, manifest);
   if (savedSettings) {
     // Overwrite config values.
     newSettings.moziot.config = Object.assign(manifest.moziot.config || {},
                                               savedSettings.moziot.config);
-  } else {
-    if (!newSettings.moziot.hasOwnProperty('config')) {
-      newSettings.moziot.config = {};
-    }
+  } else if (!newSettings.moziot.hasOwnProperty('config')) {
+    newSettings.moziot.config = {};
   }
 
-  var pluginClient = new PluginClient(packageName, {verbose: verbose});
-  return new Promise((resolve, reject) => {
-    pluginClient.register().then(addonManagerProxy => {
-      console.log('Loading add-on for', manifest.name,
-                  'from', addonPath);
-      let addonLoader = dynamicRequire(addonPath);
+  return pluginClientPromise.then(() => {
+    console.log('Loading add-on for', manifest.name, 'from', addonPath);
+
+    let addonLoader;
+    try {
+      addonLoader = dynamicRequire(addonPath);
       addonLoader(addonManagerProxy, newSettings, (packageName, errorStr) => {
         console.error('Failed to load', packageName, '-', errorStr);
-        addonManagerProxy.unloadPlugin();
-        process.exit(Constants.DONT_RESTART_EXIT_CODE);
+        const message =
+          `Failed to start ${manifest.display_name} add-on: ${errorStr}`;
+        fail(message);
       });
-      resolve();
-    }).catch(e => {
+
+      if (config.get('ipc.protocol') !== 'inproc') {
+        pluginClient.on('unloaded', () => {
+          sleep(500).then(() => process.exit(0));
+        });
+      }
+    } catch (e) {
       console.error(e);
-      const err =
-        `Failed to register package: ${manifest.name} with gateway`;
-      reject(err);
-    });
+      const message =
+        `Failed to start ${manifest.display_name} add-on: ${
+          e.toString().replace(/^Error:\s+/, '')}`;
+      return fail(message);
+    }
   });
 }
-
-// Use webpack provided require for dynamic includes from the bundle  .
-const dynamicRequire = (() => {
-  if (typeof __non_webpack_require__ !== 'undefined') {
-    // eslint-disable-next-line no-undef
-    return __non_webpack_require__;
-  }
-  return require;
-})();
 
 // Get some decent error messages for unhandled rejections. This is
 // often just errors in the code.
@@ -133,9 +161,9 @@ if (opt.argv.length != 1) {
   console.error('Expecting a single package to load');
   process.exit(Constants.DONT_RESTART_EXIT_CODE);
 }
-var addonPath = opt.argv[0];
+const addonPath = opt.argv[0];
 
-loadAddon(addonPath, opt.verbose).catch(err => {
+loadAddon(addonPath, opt.verbose).catch((err) => {
   console.error(err);
   process.exit(Constants.DONT_RESTART_EXIT_CODE);
 });

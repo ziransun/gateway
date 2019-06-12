@@ -4,17 +4,14 @@ const config = require('config');
 const fs = require('fs');
 const nanomsg = require('nanomsg');
 
-require('string.prototype.padstart').shim();
-require('string.prototype.padend').shim();
-
-var appInstance = require('../app-instance');
+const appInstance = require('../app-instance');
 
 const DEBUG = false;
 const DEBUG_MSG = false;
 
 const boundAddrs = new Set();
 const connectedAddrs = new Set();
-var socketId = 0;
+let socketId = 0;
 
 class IpcSocket {
 
@@ -30,23 +27,24 @@ class IpcSocket {
     this.protocol = config.get('ipc.protocol');
     switch (this.protocol) {
       case 'ipc':
-        this.ipcFile = '/tmp/' + ipcBaseAddr;
+        this.ipcFile = `/tmp/${ipcBaseAddr}`;
         break;
 
       case 'inproc':
-        this.ipcFile = appInstance.get() + '-' +
-                       ipcBaseAddr;
+        this.ipcFile = `${appInstance.get()}-${
+          ipcBaseAddr}`;
         break;
 
-      default:
-        var err = 'Unsupported IPC protocol: ' + this.protocol;
+      default: {
+        const err = `Unsupported IPC protocol: ${this.protocol}`;
         console.error(err);
         throw err;
+      }
     }
-    this.ipcAddr = this.protocol + '://' + this.ipcFile;
+    this.ipcAddr = `${this.protocol}://${this.ipcFile}`;
 
-    this.logPrefix = 'IpcSocket' + ('' + this.socketId).padStart(3) + ': ' +
-                     this.name.padEnd(18) + ':';
+    this.logPrefix = `IpcSocket${(`${this.socketId}`).padStart(3)}: ${
+      this.name.padEnd(18)}:`;
     DEBUG && this.log('  alloc', this.ipcAddr, socketType);
 
     this.socket.on('data', this.onData.bind(this));
@@ -136,12 +134,13 @@ class IpcSocket {
    * Called anytime a new message has been received.
    */
   onData(buf) {
-    var bufStr = buf.toString();
+    const bufStr = buf.toString();
+    let data;
     try {
-      var data = JSON.parse(bufStr);
+      data = JSON.parse(bufStr);
     } catch (err) {
       this.error('Error parsing message as JSON');
-      this.error('Rcvd: "' + bufStr + '"');
+      this.error(`Rcvd: "${bufStr}"`);
       this.error(err);
       return;
     }
@@ -157,7 +156,7 @@ class IpcSocket {
    * into json, send it and not wait for any type of reply.
    */
   sendJson(obj) {
-    var jsonObj = JSON.stringify(obj);
+    const jsonObj = JSON.stringify(obj);
     DEBUG_MSG && this.log(this.name, 'Sending:', jsonObj);
     this.socket.send(jsonObj);
   }

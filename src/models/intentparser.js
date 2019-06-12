@@ -9,68 +9,118 @@
  */
 'use strict';
 
+const CommandUtils = require('../command-utils');
 const net = require('net');
-var IntentParser = {
+const IntentParser = {
+  keywords: [
+    'turn',
+    'switch',
+    'make',
+    'change',
+    'set',
+    'dim',
+    'brighten',
+  ],
 
-    keyword: 'turn,switch,make,change',
-    type: 'on,off,red,orange,yellow,green,white,blue,purple,magenta,pink',
+  types: Object.keys(CommandUtils.colors).
+    concat(Object.keys(CommandUtils.percentages)).
+    concat([
+      'on',
+      'off',
+      'red',
+      'warmer',
+      'cooler',
+    ]),
 
-    /**
-    * Interface train the intent parser
-    */
-    train: function(data) {
-        return new Promise((resolve, reject) => {
-            let socket_client = new net.Socket();
-            socket_client.connect(5555, '127.0.0.1', function() {
-                let things = '';
-                for (const key of Object.keys(data)) {
-                    things += data[key].name + ',';
-                }
-                console.log('Connected to intent parser server');
-                socket_client.on('data', function(data) {
-                    console.log('Training result:' + data);
-                    resolve(data);
-                });
-                socket_client.write('t:' + IntentParser.keyword +
-                    '|' + IntentParser.type + '|' + things.slice(0, -1));
-            });
-            socket_client.on('error', function(data) {
-                console.log('Training error:' + data);
-                reject();
-            });
-        });
-    },
+  buildMessage: (data) => {
+    data = Buffer.from(JSON.stringify(data));
+    const buffer = Buffer.alloc(4 + data.length);
+    buffer.writeUInt32BE(data.length, 0);
+    data.copy(buffer, 4);
+    return buffer;
+  },
 
-    /**
-    * Interface to query the intent parser
-    */
-    query: function(query) {
-        return new Promise((resolve, reject) => {
-            let socket_client = new net.Socket();
-            socket_client.connect(5555, '127.0.0.1', function() {
-                socket_client.on('data', function(data) {
-                    console.log('Received: ' + data);
-                    if (data == '-1') {
-                        reject();
-                    } else {
-                        let jsonBody = JSON.parse(data);
-                        resolve({
-                            cmd: 'IOT',
-                            href: '',
-                            param: jsonBody.Location,
-                            param2: jsonBody.Type,
-                            param3: jsonBody.Type
-                        });
-                    }
-                });
-                socket_client.write('q:' + query);
-            });
-            socket_client.on('error', function(data) {
-                console.log('Query error:' + data);
-                reject();
-            });
-        });
-    }
-}
+  /**
+  * Interface train the intent parser
+  */
+  train: (things) => new Promise((resolve, reject) => {
+    const socket_client = new net.Socket();
+    socket_client.connect(5555, '127.0.0.1', () => {
+      console.log('Connected to intent parser server');
+
+      socket_client.on('data', (data) => {
+        console.log(`Training result: ${data}`);
+        try {
+          const response = JSON.parse(data);
+          if (response.hasOwnProperty('status')) {
+            if (response.status === 'success') {
+              resolve();
+            } else {
+              reject(response.error);
+            }
+          } else {
+            reject('Failed to train intent parser.');
+          }
+        } catch (e) {
+          reject('Failed to train intent parser.');
+        }
+      });
+
+      socket_client.write(IntentParser.buildMessage({
+        command: 'train',
+        data: {
+          keywords: IntentParser.keywords,
+          types: IntentParser.types,
+          locations: things,
+        },
+      }));
+    });
+    socket_client.on('error', (data) => {
+      console.log(`Training error: ${data}`);
+      reject('Failed to train intent parser.');
+    });
+  }),
+
+  /**
+  * Interface to query the intent parser
+  */
+  query: (query) => new Promise((resolve, reject) => {
+    const socket_client = new net.Socket();
+    socket_client.connect(5555, '127.0.0.1', () => {
+      socket_client.on('data', (data) => {
+        console.log(`Query result: ${data}`);
+        try {
+          const response = JSON.parse(data);
+          if (response.hasOwnProperty('status') &&
+            response.hasOwnProperty('data')) {
+            if (response.status === 'success') {
+              resolve({
+                cmd: 'IOT',
+                href: '',
+                thing: response.data.Location,
+                keyword: response.data.Keyword,
+                value: response.data.Type,
+              });
+            } else {
+              reject(response.error);
+            }
+          } else {
+            reject('Failed to query intent parser.');
+          }
+        } catch (e) {
+          reject('Failed to query intent parser.');
+        }
+      });
+      socket_client.write(IntentParser.buildMessage({
+        command: 'query',
+        data: query,
+      }));
+    });
+    socket_client.on('error', (data) => {
+      console.log(`Query error: ${data}`);
+      reject('Failed to query intent parser.');
+    });
+  }),
+};
 
 module.exports = IntentParser;

@@ -4,16 +4,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 /**
  * Effect - The outcome of a Rule once triggered
  */
 class Effect {
   /**
    * Create an Effect based on a wire-format description with a property
-   * @param {EffectDescription} _desc
+   * @param {EffectDescription} desc
    */
-  constructor(_desc) {
+  constructor(desc) {
     this.type = this.constructor.name;
+    this.label = desc.label;
   }
 
   /**
@@ -22,6 +25,7 @@ class Effect {
   toDescription() {
     return {
       type: this.type,
+      label: this.label,
     };
   }
 

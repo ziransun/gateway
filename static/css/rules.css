@@ -7,7 +7,7 @@
 #rules-view {
   color: white;
   font-family: 'Open Sans', sans-serif;
-  position: absolute;
+  overflow: auto;
 }
 
 #rules-view h3 {
@@ -30,7 +30,7 @@
   background-size: 3.2rem;
   background-repeat: no-repeat;
   background-position: 2rem;
-  background-image: url('../images/rules-icon.png');
+  background-image: url('../optimized-images/rules-icon.png');
 }
 
 .rule {
@@ -46,18 +46,18 @@
   vertical-align: bottom;
 }
 
+.rule.invalid {
+  background: #7f3939;
+}
+
 .rule-info h3 {
   margin: 0;
   font-size: 1.6rem;
 }
 
-.rule-info p {
-  font-size: 1.2rem;
-}
-
 .rule-preview {
   border-radius: 0.5rem 0.5rem 0 0;
-  background: url(/images/background-small.png);
+  background: url('../optimized-images/background-small.png');
   box-sizing: border-box;
   padding: 3rem;
   width: 100%;
@@ -82,6 +82,8 @@
   width: 66%;
   display: inline-block;
   vertical-align: bottom;
+  height: 30%;
+  overflow: hidden;
 }
 
 .rule-switch {
@@ -112,6 +114,10 @@
   background: #305067;
 }
 
+.rule.invalid > .rule-switch > input:checked + .switch-slider {
+  background: #4d2121;
+}
+
 .rule-switch > input:checked + .switch-slider:after {
   background: white;
   transform: translate(2.5rem, -0.4rem);
@@ -131,7 +137,7 @@
   position: absolute;
   top: -1.8rem;
   right: -1.8rem;
-  background: url(/images/delete-button.png);
+  background: url('../optimized-images/delete-button.png');
   background-size: 3.6rem;
   width: 3.6rem;
   height: 3.6rem;
@@ -176,7 +182,7 @@
 #create-rule-button {
   bottom: 2rem;
   right: 2rem;
-  background-image: url('../images/add.svg');
+  background-image: url('../optimized-images/add.svg');
 }
 
 #create-rule-hint {

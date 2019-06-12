@@ -4,13 +4,16 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const assert = require('assert');
 const Events = require('../Events');
 const PropertyTrigger = require('./PropertyTrigger');
 
 const LevelTriggerTypes = {
   LESS: 'LESS',
-  GREATER: 'GREATER'
+  EQUAL: 'EQUAL',
+  GREATER: 'GREATER',
 };
 
 /**
@@ -23,11 +26,14 @@ class LevelTrigger extends PropertyTrigger {
    */
   constructor(desc) {
     super(desc);
-    assert(this.property.type === 'number');
-    assert(typeof desc.level === 'number');
+    assert(this.property.type === 'number' || this.property.type === 'integer');
+    assert(typeof desc.value === 'number');
     assert(LevelTriggerTypes[desc.levelType]);
+    if (desc.levelType === 'EQUAL') {
+      assert(this.property.type === 'integer');
+    }
 
-    this.level = desc.level;
+    this.value = desc.value;
     this.levelType = desc.levelType;
   }
 
@@ -38,8 +44,8 @@ class LevelTrigger extends PropertyTrigger {
     return Object.assign(
       super.toDescription(),
       {
-        level: this.level,
-        levelType: this.levelType
+        value: this.value,
+        levelType: this.levelType,
       }
     );
   }
@@ -53,12 +59,17 @@ class LevelTrigger extends PropertyTrigger {
 
     switch (this.levelType) {
       case LevelTriggerTypes.LESS:
-        if (propValue < this.level) {
+        if (propValue < this.value) {
+          on = true;
+        }
+        break;
+      case LevelTriggerTypes.EQUAL:
+        if (propValue === this.value) {
           on = true;
         }
         break;
       case LevelTriggerTypes.GREATER:
-        if (propValue > this.level) {
+        if (propValue > this.value) {
           on = true;
         }
         break;

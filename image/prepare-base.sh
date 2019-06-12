@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 #
 # This script is expected to be run on the Raspberry Pi and it is
 # used to prepare the base image used for the gateway.
@@ -23,10 +23,11 @@
 # for complete instructions on creating a base image.
 
 NVM_VERSION="v0.33.8"
-NODE_VERSION="--lts"
+NODE_VERSION="--lts=carbon"
 
-sudo apt update
+sudo apt update -y
 sudo apt upgrade -y
+sudo apt update -y
 
 # Install and configure nvm
 curl -o- https://raw.githubusercontent.com/creationix/nvm/${NVM_VERSION}/install.sh | bash
@@ -38,219 +39,61 @@ export NVM_DIR="$HOME/.nvm"
 nvm install ${NODE_VERSION}
 nvm use ${NODE_VERSION}
 
-# Install prequisite packages
+# Install prerequisite packages
 sudo apt install -y \
-  certbot \
+  autoconf \
   dnsmasq \
+  ffmpeg \
   git \
   hostapd \
+  libboost-python-dev \
+  libboost-thread-dev \
+  libbluetooth-dev \
   libffi-dev \
+  libglib2.0-dev \
   libnanomsg-dev \
   libnanomsg4 \
+  libtool \
   libudev-dev \
   libusb-1.0-0-dev \
+  policykit-1 \
   python-pip \
-  python3-pip
+  python3-pip \
+  sqlite3
 
 # Install Python add-on bindings
-_url="https://github.com/mozilla-iot/gateway-addon-python/releases/download/v0.2.0/gateway_addon-0.2.0.tar.gz"
+_url="git+https://github.com/mozilla-iot/gateway-addon-python@v0.8.0#egg=gateway_addon"
 sudo pip2 install "$_url"
 sudo pip3 install "$_url"
 
 _url="git+https://github.com/mycroftai/adapt#egg=adapt-parser"
-sudo pip2 install "$_url"
 sudo pip3 install "$_url"
+
+# Allow node and python3 to use the Bluetooth adapter
+sudo setcap cap_net_raw+eip $(eval readlink -f `which node`)
+sudo setcap cap_net_raw+eip $(eval readlink -f `which python3`)
 
 git clone https://github.com/mozilla-iot/intent-parser "$HOME/mozilla-iot/intent-parser"
 
-# Create the service file needed by systemctl
-sudo sh -c 'cat > /etc/systemd/system/mozilla-iot-gateway.service' <<END
-[Unit]
-Description=Mozilla IoT Gateway Client
-After=network.target
-OnFailure=mozilla-iot-gateway.update-rollback.service
+# Create the service files needed by systemd
+sudo chown -R root:root ./etc
+sudo cp -r ./etc /
 
-[Service]
-Type=simple
-StandardOutput=journal
-StandardError=journal
-# Edit this line, if needed, to specify what user to run Vaani as
-# If you delete this line, it will run as root
-User=pi
-# Edit this line, if needed, to specify where you installed the server
-WorkingDirectory=/home/pi/mozilla-iot/gateway
-# Edit this line, if needed, to set the correct path to node
-ExecStart=/home/pi/mozilla-iot/gateway/run-app.sh
-Restart=always
-RestartSec=10s
+# disable hostapd and dnsmasq auto start
+sudo systemctl unmask hostapd.service
+sudo systemctl disable hostapd.service
+sudo systemctl disable dnsmasq.service
 
-[Install]
-WantedBy=multi-user.target
-END
-
-sudo sh -c 'cat > /etc/systemd/system/mozilla-iot-gateway.update-rollback.service' <<END
-[Unit]
-Description=Mozilla IoT Gateway Client Update Rollback
-After=network.target
-
-[Service]
-Type=simple
-StandardOutput=journal
-StandardError=journal
-User=pi
-# Edit this line, if needed, to specify where you installed the server
-WorkingDirectory=/home/pi/mozilla-iot/
-# Edit this line, if needed, to set the correct path to the script
-ExecStart=/home/pi/mozilla-iot/gateway/tools/rollback.sh
-
-END
-
-sudo sh -c 'cat > /etc/systemd/system/mozilla-iot-gateway.check-for-update.service' <<END
-[Unit]
-Description=Mozilla IoT Gateway Client Update Checker
-After=network.target
-
-[Service]
-Type=simple
-StandardOutput=journal
-StandardError=journal
-User=pi
-# Edit this line, if needed, to specify where you installed the server
-WorkingDirectory=/home/pi/mozilla-iot/gateway
-# Edit this line, if needed, to set the correct path to the script
-ExecStart=/home/pi/mozilla-iot/gateway/tools/check-for-update.sh
-
-END
-
-sudo sh -c 'cat > /etc/systemd/system/mozilla-iot-gateway.check-for-update.timer' <<END
-[Unit]
-Description=Run the Mozilla IoT Gateway update checker daily
-
-[Timer]
-OnCalendar=daily
-
-[Install]
-WantedBy=timers.target
-END
-
-# Disable the gateway service so that doesn't start up automatically on each boot.
-sudo systemctl disable mozilla-iot-gateway.service
-
-# Install required root packages
-sudo ./prepare-base-root.sh
+# Enable the gateway service so that it starts up automatically on each boot
+sudo systemctl enable mozilla-iot-gateway.service
 
 # Check for an update every day.
 sudo systemctl enable mozilla-iot-gateway.check-for-update.timer
 
-# Create the systemd certificate renewal service.
-sudo su -c 'cat > /etc/systemd/system/mozilla-iot-gateway.renew-certificates.service' <<END
-[Unit]
-Description=Mozilla IoT Gateway Certificate Renewer
-After=network.target
-
-[Service]
-Type=simple
-StandardOutput=journal
-StandardError=journal
-User=root
-# Edit this line, if needed, to specify where you installed the server
-WorkingDirectory=/home/pi/mozilla-iot/gateway
-# Edit this line, if needed, to set the correct path to the script
-ExecStart=/home/pi/mozilla-iot/gateway/tools/renew-certificates.sh
-END
-
-sudo su -c 'cat > /etc/systemd/system/mozilla-iot-gateway.renew-certificates.timer' <<END
-[Unit]
-Description=Run the Mozilla IoT Gateway certifate renewal service daily.
-
-[Timer]
-OnCalendar=daily
-
-[Install]
-WantedBy=timers.target
-END
-
-# Enable the certificate renewal service so that it starts up automatically on
-# each boot.
-sudo systemctl enable mozilla-iot-gateway.renew-certificates.timer
-
-sudo sh -c 'cat > /etc/systemd/system/mozilla-iot-gateway.intent-parser.service' <<END
-[Unit]
-Description=Mozilla IoT Gateway Intent Parser
-After=network.target
-OnFailure=mozilla-iot-gateway.update-rollback.service
-
-[Service]
-Type=simple
-StandardOutput=journal
-StandardError=journal
-User=pi
-# Edit this line, if needed, to specify where you installed the server
-WorkingDirectory=/home/pi/mozilla-iot/intent-parser
-# Edit this line, if needed, to set the correct path to node
-ExecStart=/home/pi/mozilla-iot/intent-parser/intent-parser-server.py
-Restart=always
-RestartSec=10s
-
-[Install]
-WantedBy=multi-user.target
-END
-
+# Enable the intent parser at boot
 sudo systemctl enable mozilla-iot-gateway.intent-parser.service
 
-# Create a script which redirects port 80 to 8080 and 443 to 4443. This
-# allows the gateway to run under the pi user rather than requiring to
-# be root.
-
-sudo sh -c 'cat > /etc/init.d/gateway-iptables.sh' << 'END'
-#! /bin/sh
-### BEGIN INIT INFO
-# Provides:          gateway-iptables
-# Required-Start:    $all
-# Required-Stop:
-# Default-Start:     3 4 5
-# Default-Stop:
-# Short-Description: Redirect :80 to :8080 and :443 to :4443
-### END INIT INFO
-
-PATH=/sbin:/usr/sbin:/bin:/usr/bin
-
-. /lib/init/vars.sh
-. /lib/lsb/init-functions
-
-do_start() {
-  [ "$VERBOSE" != no ] && log_begin_msg "Redirecting :80 to :8080 and :443 to :4443"
-  iptables -t mangle -A PREROUTING -p tcp --dport 80 -j MARK --set-mark 1
-  iptables -t mangle -A PREROUTING -p tcp --dport 443 -j MARK --set-mark 1
-  iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
-  iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 4443
-  iptables -I INPUT -m state --state NEW -m tcp -p tcp --dport 8080 -m mark --mark 1 -j ACCEPT
-  iptables -I INPUT -m state --state NEW -m tcp -p tcp --dport 4443 -m mark --mark 1 -j ACCEPT
-  ES=$?
-  [ "$VERBOSE" != no ] && log_end_msg $ES
-  return $ES
-}
-
-case "$1" in
-    start)
-	do_start
-        ;;
-    restart|reload|force-reload)
-        echo "Error: argument '$1' not supported" >&2
-        exit 3
-        ;;
-    stop|status)
-        # No-op
-        exit 0
-        ;;
-    *)
-        echo "Usage: $0 start|stop" >&2
-        exit 3
-        ;;
-esac
-END
-
-# Activate the script so that it runs on each boot.
+# Activate the iptables script so that it runs on each boot.
 #
 # NOTE: Do NOT be tempted to merge this with the systemctl stuff.
 #       There are 2 reasons for this. The first is that run-app.sh
@@ -262,7 +105,9 @@ END
 #       could stop and restart the gateway and if this was merged
 #       with run-app.sh then you'd be installing the rules a second
 #       time.
-sudo chmod +x /etc/init.d/gateway-iptables.sh
-sudo update-rc.d gateway-iptables.sh defaults
+sudo update-rc.d gateway-iptables defaults
+
+# Clean up the preparation script and config files.
+sudo rm -rf /home/pi/prepare-base.sh /home/pi/etc
 
 echo "Done"

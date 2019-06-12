@@ -6,9 +6,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
+'use strict';
+
 const crypto = require('crypto');
 const fs = require('fs');
-const process = require('process');
 
 module.exports = {
   /**
@@ -17,11 +18,12 @@ module.exports = {
    * @param {String} fname File path
    * @returns A checksum as a lower case hex string.
    */
-  hashFile: function(fname) {
+  hashFile: (fname) => {
     const hash = crypto.createHash('sha256');
 
+    let fd;
     try {
-      const fd = fs.openSync(fname, 'r');
+      fd = fs.openSync(fname, 'r');
       const buffer = new Uint8Array(4096);
 
       // eslint-disable-next-line no-constant-condition
@@ -33,24 +35,22 @@ module.exports = {
         hash.update(buffer.slice(0, bytes));
       }
     } catch (e) {
+      console.error(e);
       return null;
+    } finally {
+      if (fd) {
+        fs.closeSync(fd);
+      }
     }
 
     return hash.digest('hex').toLowerCase();
   },
 
   /**
-   * Get the current architecture as "os-machine", i.e. darwin-x64.
-   */
-  getArchitecture: function() {
-    return `${process.platform}-${process.arch}`;
-  },
-
-  /**
    * Escape text such that it's safe to be placed in HTML.
    */
-  escapeHtml: function(text) {
-    if (typeof(text) !== 'string') {
+  escapeHtml: (text) => {
+    if (typeof text !== 'string') {
       text = `${text}`;
     }
 

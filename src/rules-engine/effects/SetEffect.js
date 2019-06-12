@@ -4,6 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const assert = require('assert');
 const PropertyEffect = require('./PropertyEffect');
 
@@ -19,7 +21,7 @@ class SetEffect extends PropertyEffect {
     super(desc);
     this.value = desc.value;
     assert(typeof this.value === this.property.type,
-      'setpoint and property must be same type');
+           'setpoint and property must be same type');
     this.on = false;
   }
 

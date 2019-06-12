@@ -32,143 +32,180 @@
 
 'use strict';
 
-const express = require('express');
-const fetch = require('node-fetch');
-const Constants = require('../constants.js');
-const CommandsController = express.Router();
-const IntentParser = require('../models/intentparser')
+const PromiseRouter = require('express-promise-router');
+const AddonManager = require('../addon-manager');
+const CommandUtils = require('../command-utils');
+const IntentParser = require('../models/intentparser');
+const Things = require('../models/things');
 
-const thingsOptions = {
-  method: 'GET',
-  headers: {
-    'Authorization': '',
-    'Accept': 'application/json'
-  }
-};
-
-const iotOptions = {
-  method: 'PUT',
-  headers: {
-    'Accept': 'application/json',
-    'Content-Type': 'application/json'
-  },
-  body: ''
-};
+const CommandsController = PromiseRouter();
 
 /**
- * Local Variables for the Gateway Href and the Web Token since the
- * CommandsController will be posting to itself.
+ * Parses the intent for a text sentence and sends to the intent parser to
+ * determine intent. Then executes the intent as an action on the thing API.
  */
-CommandsController.gatewayRef = '';
-CommandsController.jwt = '';
-
-/**
- * Called by the app.js to configure the auth header and the address of the GW
- *  and the python interface since the CommandsController
- *  will be posting to itself.
- */
-CommandsController.configure =  function(gatewayHref, jwt) {
-  CommandsController.gatewayHref = gatewayHref;
-  CommandsController.jwt = jwt;
-};
-
-/**
- * Helper function for converting fetch results to text
- */
-function toText(res) {
-  return res.text();
-}
-
-/**
- * Parses the intent for a text sentence and sends to the API.ai intent
- * parser to determine intent.  Then executes the intent as an action on the
- * thing API.
- */
-CommandsController.post('/', function (request, response) {
-  if(!request.body || request.body.text === undefined) {
-    response.status(400).send(JSON.stringify(
-      {'message': 'Text element not defined'}));
+CommandsController.post('/', async (request, response) => {
+  if (!request.body || !request.body.hasOwnProperty('text')) {
+    response.status(400).json({
+      message: 'Text element not defined',
+    });
     return;
   }
 
-  const thingsUrl = CommandsController.gatewayHref +
-  Constants.THINGS_PATH;
-  thingsOptions.headers.Authorization = 'Bearer ' +
-  CommandsController.jwt;
+  let names = await Things.getThingNames();
+  names = names.map((n) => n.toLowerCase());
 
-  fetch(thingsUrl, thingsOptions).then(toText)
-  .then(function(thingBody) {
-    let jsonBody = JSON.parse(thingBody);
-    IntentParser.train(jsonBody).then(() => {
-      IntentParser.query(request.body.text).then((payload) => {
-        let match = payload.param.toUpperCase();
-        let thingfound = false;
-        for (var i = 0; i < jsonBody.length; i++) {
-          var obj = jsonBody[i];
-          let name = obj.name.toUpperCase();
-          if (name == match) {
-            thingfound = true;
-            break;
-          }
-        }
-        if (thingfound) {
-          if (payload.param2 == 'on' || payload.param2 == 'off') {
-            iotOptions.body = JSON.stringify({'on':
-            (payload.param2 == 'on') ? true : false});
-            payload.href = obj.properties.on.href;
-          } else if ((payload.param3 != null) &&
-            (payload.param3 != ''  && obj.properties.color != '')) {
-            var colorname_to_hue = {red:'#FF0000',
-              orange:'#FFB300', yellow:'#FFF700',
-              green:'#47f837', white:'#FCFBEA', blue:'#1100FF',
-              purple:'#971AC4', magenta:'#75009F', pink:'#FFC0CB'};
-            if (!colorname_to_hue[payload.param3]) {
-              response.status(404).json({'message': 'Hue color not found'});
-              return;
-            } else {
-              iotOptions.body = JSON.stringify({'color':
-               colorname_to_hue[payload.param3]});
-              payload.href = obj.properties.color.href;
-            }
-          } else {
-            response.status(404).json({'message': 'Command not found'});
-            return;
-          }
-          const iotUrl = CommandsController.gatewayHref + payload.href;
-          iotOptions.headers.Authorization =
-            'Bearer ' + CommandsController.jwt;
-          // Returning 201 to signify that the command was mapped to an
-          // intent and matched a 'thing' in our list.  Return a response to
-          // caller with this status before the command finishes execution
-          // as the execution can take some time (e.g. blinds)
-          response.status(201).json({'message': 'Command Created'});
-          fetch(iotUrl, iotOptions)
-            .then(function() {
-              // In the future we may want to use WS to give a status of
-              // the disposition of the command execution..
-            })
-            .catch(function(err) {
-              // Future, give status via WS.
-              console.log('catch inside PUT:' + err);
-            });
-        } else {
-          response.status(404).json({'message': 'Thing not found'});
-        }
-      }).catch(function(error) {
-        console.log('Error parsing intent:', error);
-        response.status(404).json({'message':
-          'Internal error determining intent'});
-      });
-    }).catch(function(error) {
-      console.log('Error parsing intent:', error);
-      response.status(404).json({'message':
-        'Internal error determining intent'});
+  const internalError = () => {
+    response.status(400).json({
+      message: 'Sorry, something went wrong.',
     });
-  })
-  .catch(function(err) {
-    console.log('error catch:' + err);
-  });
+  };
 
+  const thingNotFound = () => {
+    response.status(400).json({
+      message: 'Sorry, that thing wasn\'t found.',
+    });
+  };
+
+  const invalidForDevice = () => {
+    response.status(400).json({
+      message: 'Sorry, I\'m afraid I can\'t do that.',
+    });
+  };
+
+  const invalidCommand = () => {
+    response.status(400).json({
+      message: 'Sorry, I didn\'t understand that.',
+    });
+  };
+
+  const failedToSet = () => {
+    response.status(400).json({
+      message: 'Sorry, that didn\'t work.',
+    });
+  };
+
+  try {
+    await IntentParser.train(names);
+  } catch (e) {
+    console.log('Error training:', e);
+    internalError();
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await IntentParser.query(request.body.text);
+  } catch (e) {
+    console.log('Error parsing intent:', e);
+    invalidCommand();
+    return;
+  }
+
+  const name = payload.thing;
+  const thing = await Things.getThingByName(name);
+
+  if (!thing) {
+    thingNotFound();
+    return;
+  }
+
+  let propertyName, value;
+
+  const properties = {
+    on: CommandUtils.findProperty(thing, 'OnOffProperty', 'on'),
+    color: CommandUtils.findProperty(thing, 'ColorProperty', 'color'),
+    colorTemperature: CommandUtils.findProperty(thing,
+                                                'ColorTemperatureProperty',
+                                                'colorTemperature'),
+    level: CommandUtils.findProperty(thing, 'LevelProperty', 'level'),
+    brightness: CommandUtils.findProperty(thing,
+                                          'BrightnessProperty',
+                                          'level'),
+  };
+
+  if (['on', 'off'].includes(payload.value)) {
+    if (!properties.on) {
+      invalidForDevice();
+      return;
+    }
+
+    propertyName = properties.on;
+    value = payload.value === 'on';
+  } else if (['warmer', 'cooler'].includes(payload.value)) {
+    if (!properties.colorTemperature) {
+      invalidForDevice();
+      return;
+    }
+
+    propertyName = properties.colorTemperature;
+
+    let current;
+    try {
+      current = await AddonManager.getProperty(thing.id, propertyName);
+    } catch (e) {
+      failedToSet();
+      return;
+    }
+
+    value = payload.value === 'warmer' ? current - 100 : current + 100;
+  } else if (['dim', 'brighten'].includes(payload.keyword) ||
+             CommandUtils.percentages.hasOwnProperty(payload.value)) {
+    if (!properties.brightness) {
+      invalidForDevice();
+      return;
+    }
+
+    propertyName = properties.brightness;
+
+    const percent =
+      payload.value ? CommandUtils.percentages[payload.value] : 10;
+
+    if (payload.keyword === 'set') {
+      value = percent;
+    } else if (payload.keyword === 'dim' || payload.keyword === 'brighten') {
+      let current;
+      try {
+        current = await AddonManager.getProperty(thing.id, propertyName);
+      } catch (e) {
+        failedToSet();
+        return;
+      }
+
+      if (payload.keyword === 'dim') {
+        value = current - percent;
+      } else {
+        value = current + percent;
+      }
+    }
+  } else if (CommandUtils.colors.hasOwnProperty(payload.value)) {
+    if (!properties.color) {
+      invalidForDevice();
+      return;
+    }
+
+    propertyName = properties.color;
+    value = CommandUtils.colors[payload.value];
+  } else {
+    invalidCommand();
+    return;
+  }
+
+  try {
+    await AddonManager.setProperty(thing.id, propertyName, value);
+  } catch (e) {
+    failedToSet();
+    return;
+  }
+
+  // Returning 201 to signify that the command was mapped to an
+  // intent and matched a 'thing' in our list. Return a response to
+  // caller with this status before the command finishes execution
+  // as the execution can take some time (e.g. blinds)
+  response.status(201).json({
+    message: 'Command Created',
+    payload: payload,
+  });
 });
 
 module.exports = CommandsController;

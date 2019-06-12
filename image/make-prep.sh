@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 #
 # This script automates a bunch of steps of creating a base image
 # for the gateway.
@@ -15,6 +15,7 @@ SCRIPT_NAME=$(basename $0)
 SCRIPT_DIR=$(dirname $0)
 VERBOSE=0
 ENABLE_CONSOLE=1
+ENABLE_I2C=1
 ENABLE_WIFI=0
 WIFI_SSID=
 WIFI_PASSWORD=
@@ -22,6 +23,7 @@ ENABLE_SSH=0
 HOSTNAME=gateway
 PRINT_SUMMARY=0
 DD_DEV=
+WIFI_COUNTRY=GB
 
 ###########################################################################
 #
@@ -29,20 +31,22 @@ DD_DEV=
 #
 usage() {
   cat <<END
-${SCRIPT_NAME} [OPTION] img-file prep-file
+${SCRIPT_NAME} [OPTION] raspbian-img-file prep-file
 
 where OPTION can be one of:
 
-  --noconsole     Don't enable the serial console
-  --ssh           Enable ssh
-  --ssid          Specify the SSID for Wifi access
-  --password      Specify the password for wifi access
-  --hostname      Specify the hostname
-  --dd DEV        Issue a dd command to copy the image to an sdcard
-  --summary       Print summary of changed files
-  -h, --help      Print this help
-  -v, --verbose   Turn on some verbose reporting
-  -x              Does a 'set -x'
+  --noconsole       Don't enable the serial console
+  --ssh             Enable ssh
+  --ssid SSID       Specify the SSID for Wifi access
+  --password PWD    Specify the password for wifi access
+  --wifi-country CC Specify the WiFi country code to use (default: GB)
+  --no-i2c          Disable I2C bus
+  --hostname NAME   Specify the hostname
+  --dd DEV          Issue a dd command to copy the image to an sdcard
+  --summary         Print summary of changed files
+  -h, --help        Print this help
+  -v, --verbose     Turn on some verbose reporting
+  -x                Does a 'set -x'
 END
 }
 
@@ -51,13 +55,14 @@ END
 # Copies the prepare-base.sh and prepare-base-root.sh files to the image
 #
 copy_prep_files() {
-  echo "Copying prepare-base scripts"
+  echo "Copying prepare-base scripts and config files"
 
   HOME_PI="${ROOT_MOUNTPOINT}/home/pi"
 
   sudo rm -f "${HOME_PI}"/prepare-base*.sh
-  sudo cp "${SCRIPT_DIR}"/prepare-base*.sh "${HOME_PI}"
-  sudo chmod +x "${HOME_PI}"/prepare-base*.sh
+  sudo cp "${SCRIPT_DIR}"/prepare-base.sh "${HOME_PI}"
+  sudo cp -r "${SCRIPT_DIR}"/etc "${HOME_PI}"
+  sudo chmod +x "${HOME_PI}"/prepare-base.sh
 }
 
 ###########################################################################
@@ -65,7 +70,6 @@ copy_prep_files() {
 # Enables the serial console
 #
 enable_serial_console() {
-
   CONFIG=${BOOT_MOUNTPOINT}/config.txt
   if grep -q "enable_uart=1" ${CONFIG} ; then
     echo "Serial console appears to already be enabled"
@@ -79,6 +83,35 @@ core_freq=250
 END
   fi
 }
+
+###########################################################################
+#
+# Enables the I2C bus
+#
+enable_i2c_bus() {
+  CONFIG="${BOOT_MOUNTPOINT}/config.txt"
+  local pattern="dtparam=i2c_arm=on"
+  if grep -q "$pattern" ${CONFIG} ; then
+    sudo sed -i "s/.*$pattern/$pattern/g" "${CONFIG}"
+  else
+    echo "Enabling I2C bus"
+    sudo sh -c "cat >> '${CONFIG}'" <<END
+
+$pattern
+END
+  fi
+
+  CONF="${ROOT_MOUNTPOINT}/etc/modules"
+  if sudo grep -q "i2c-dev" "${CONF}"; then
+    sudo sed -i "s/.*i2c-dev/i2c-dev/g" "${CONF}"
+  else
+    sudo sh -c "cat >> '${CONF}'" <<END
+
+i2c-dev
+END
+  fi
+}
+
 
 ###########################################################################
 #
@@ -106,6 +139,25 @@ network={
   psk="${WIFI_PASSWORD}"
 }
 END
+  fi
+}
+
+###########################################################################
+#
+# Sets the Wifi Country
+#
+# With raspbian releases from 2018-03-13 onwards, wifi won't be enabled
+# until the country code is set. This means that we can't even run our
+# first time setup, so we go back to the behaviour of previous releases
+# which default the country to GB.
+#
+set_wifi_country() {
+  WPA_CONF=${ROOT_MOUNTPOINT}/etc/wpa_supplicant/wpa_supplicant.conf
+
+  if sudo grep -q "^country=" "${WPA_CONF}"; then
+    sudo sed -i "s/country=.*/country=${WIFI_COUNTRY}/g" ${WPA_CONF}
+  else
+    sudo sed -i "1i country=${WIFI_COUNTRY}" ${WPA_CONF}
   fi
 }
 
@@ -164,7 +216,9 @@ write_image() {
     sudo umount "${dev}"
   done
   echo "Writing image '${PREP_FILENAME}' to '${DD_DEV}'"
-  sudo dd status=progress bs=10M if="${PREP_FILENAME}" of="${DD_DEV}"
+  args="status=progress"
+  dd if=/dev/zero of=/dev/null $args count=1 > /dev/null 2>&1 || args=""
+  sudo dd bs=10M if="${PREP_FILENAME}" of="${DD_DEV}" $args
 }
 
 ###########################################################################
@@ -188,6 +242,9 @@ main() {
             HOSTNAME="${!OPTIND}"
             OPTIND=$(( OPTIND + 1 ))
             ;;
+          no-i2c)
+            ENABLE_I2C=0
+            ;;
           noconsole)
             ENABLE_CONSOLE=0
             ;;
@@ -210,9 +267,15 @@ main() {
           verbose)
             VERBOSE=1
             ;;
+          wifi-country)
+            WIFI_COUNTRY="${!OPTIND}"
+            OPTIND=$(( OPTIND + 1 ))
+            ;;
           *)
             if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
               echo "Unknown option --${OPTARG}" >&2
+              echo ""
+              usage
               exit 1
             fi
         esac
@@ -229,6 +292,7 @@ main() {
         ;;
       ?)
         echo "Unrecognized option: ${opt}"
+        echo ""
         usage
         exit 1
         ;;
@@ -239,11 +303,15 @@ main() {
   IMG_FILENAME=$1
   if [ -z "${IMG_FILENAME}" ]; then
     echo "No IMG filename provided."
+    echo ""
+    usage
     exit 1
   fi
   PREP_FILENAME=$2
   if [ -z "${PREP_FILENAME}" ]; then
     echo "No prep filename provided."
+    echo ""
+    usage
     exit 1
   fi
 
@@ -251,11 +319,34 @@ main() {
     echo "  IMG_FILENAME = ${IMG_FILENAME}"
     echo " PREP_FILENAME = ${PREP_FILENAME}"
     echo "ENABLE_CONSOLE = ${ENABLE_CONSOLE}"
+    echo "    ENABLE_I2C = ${ENABLE_I2C}"
     echo "   ENABLE_WIFI = ${ENABLE_WIFI}"
     echo "     WIFI_SSID = ${WIFI_SSID}"
     echo " WIFI_PASSWORD = ${WIFI_PASSWORD}"
+    echo "  WIFI_COUNTRY = ${WIFI_COUNTRY}"
     echo "    ENABLE_SSH = ${ENABLE_SSH}"
     echo "        DD_DEV = ${DD_DEV}"
+  fi
+
+  if [ ! -z "${DD_DEV}" ]; then
+    DD_NAME=$(basename ${DD_DEV})
+    if [[ "${DD_DEV:0:1}" != '/' ]]; then
+      DD_DEV="/dev/${DD_DEV}"
+    fi
+    REMOVABLE=$(cat /sys/block/${DD_NAME}/removable)
+    if [ "${REMOVABLE}" != "1" ]; then
+      echo "${DD_DEV} isn't a removable drive"
+      exit 1
+    fi
+    MEDIA_SIZE=$(cat /sys/block/${DD_NAME}/size)
+    if [ "${MEDIA_SIZE}" == "0" ]; then
+      echo "No media present at ${DD_DEV}"
+      exit 1
+    fi
+    if [ $(( ${MEDIA_SIZE} / 2048 / 1024 )) -gt 100 ]; then
+      echo "${DD_DEV} media size is larger than 100 Gb - wrong device?"
+      exit 1
+    fi
   fi
 
   if [ ! -f "${IMG_FILENAME}" ]; then
@@ -334,8 +425,14 @@ main() {
 
   echo ""
 
+  set_wifi_country
+
   if [ "${ENABLE_CONSOLE}" == 1 ]; then
     enable_serial_console
+  fi
+
+  if [ "${ENABLE_I2C}" == 1 ]; then
+    enable_i2c_bus
   fi
 
   if [ "${ENABLE_WIFI}" == 1 ]; then
@@ -356,7 +453,7 @@ main() {
 
   # Adding a sleep here helps ensure that the mounted directories are
   # not actually still in use.
-  sleep 1
+  sleep 3
 
   cleanup
 
@@ -384,19 +481,19 @@ function cleanup() {
 
   if [ "${ROOT_MOUNTED}" == 1 ]; then
     echo "Unmounting ${ROOT_DEV}"
-    sudo umount ${ROOT_MOUNTPOINT}
+    sudo umount "${ROOT_MOUNTPOINT}"
     ROOT_MOUNTED=0
   fi
-  if [ -d ${ROOT_MOUNTPOINT} ]; then
-    sudo rmdir ${ROOT_MOUNTPOINT}
+  if [ ! -z "${ROOT_MOUNTPOINT}" -a -d "${ROOT_MOUNTPOINT}" ]; then
+    sudo rmdir "${ROOT_MOUNTPOINT}"
   fi
   if [ "${BOOT_MOUNTED}" == 1 ]; then
     echo "Unmounting ${BOOT_DEV}"
-    sudo umount ${BOOT_MOUNTPOINT}
+    sudo umount "${BOOT_MOUNTPOINT}"
     BOOT_MOUNTED=0
   fi
-  if [ -d ${BOOT_MOUNTPOINT} ]; then
-    sudo rmdir ${BOOT_MOUNTPOINT}
+  if [ ! -z "${BOOT_MOUNTPOINT}" -a -d "${BOOT_MOUNTPOINT}" ]; then
+    sudo rmdir "${BOOT_MOUNTPOINT}"
   fi
   if [ "${LOOP_MOUNT_CREATED}" == 1 ]; then
     echo "Removing loop mounts"

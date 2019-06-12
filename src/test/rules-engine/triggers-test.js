@@ -2,43 +2,71 @@ const triggers = require('../../rules-engine/triggers');
 
 const booleanTrigger = {
   property: {
-    name: 'on',
     type: 'boolean',
-    href:
-      '/things/light1/properties/on'
+    thing: 'light1',
+    id: 'on',
   },
   type: 'BooleanTrigger',
-  onValue: true
+  onValue: true,
 };
 
 const levelTrigger = {
   property: {
-    name: 'hue',
     type: 'number',
-    href:
-      '/things/light2/properties/hue'
+    thing: 'light2',
+    id: 'hue',
   },
   type: 'LevelTrigger',
   levelType: 'LESS',
-  level: 120
+  value: 120,
 };
 
-describe('triggers', function() {
+const equalityTrigger = {
+  property: {
+    type: 'string',
+    thing: 'light2',
+    id: 'color',
+  },
+  type: 'EqualityTrigger',
+  value: '#ff7700',
+};
+
+const andTrigger = {
+  triggers: [
+    booleanTrigger,
+    levelTrigger,
+  ],
+  type: 'MultiTrigger',
+  op: 'AND',
+};
+
+
+describe('triggers', () => {
   it('should parse a BooleanTrigger', () => {
-    let trigger = triggers.fromDescription(booleanTrigger);
+    const trigger = triggers.fromDescription(booleanTrigger);
     expect(trigger).toMatchObject(booleanTrigger);
   });
 
   it('should parse a LevelTrigger', () => {
-    let trigger = triggers.fromDescription(levelTrigger);
+    const trigger = triggers.fromDescription(levelTrigger);
     expect(trigger).toMatchObject(levelTrigger);
+  });
+
+  it('should parse an EqualityTrigger', () => {
+    const trigger = triggers.fromDescription(equalityTrigger);
+    expect(trigger).toMatchObject(equalityTrigger);
+  });
+
+  it('should parse a MultiTrigger', () => {
+    const trigger = triggers.fromDescription(andTrigger);
+    expect(trigger).toMatchObject(andTrigger);
   });
 
   it('should reject an unknown trigger type', () => {
     let err = null;
     try {
       triggers.fromDescription({type: 'LimaTrigger'});
-    } catch(e) {
+    } catch (e) {
       err = e;
     }
     expect(err).toBeTruthy();
@@ -52,7 +80,7 @@ describe('triggers', function() {
         booleanTrigger,
         {onValue: 12}
       ));
-    } catch(e) {
+    } catch (e) {
       err = e;
     }
     expect(err).toBeTruthy();
@@ -64,9 +92,9 @@ describe('triggers', function() {
       triggers.fromDescription(Object.assign(
         {},
         levelTrigger,
-        {level: true}
+        {value: true}
       ));
-    } catch(e) {
+    } catch (e) {
       err = e;
     }
     expect(err).toBeTruthy();
@@ -80,7 +108,7 @@ describe('triggers', function() {
         levelTrigger,
         {levelType: 'GARBANZO'}
       ));
-    } catch(e) {
+    } catch (e) {
       err = e;
     }
     expect(err).toBeTruthy();
@@ -90,14 +118,14 @@ describe('triggers', function() {
   it('should reject an trigger without a property', () => {
     let err = null;
     try {
-      let brokenTrigger = Object.assign(
+      const brokenTrigger = Object.assign(
         {},
         levelTrigger
       );
       delete brokenTrigger.property;
 
       triggers.fromDescription(brokenTrigger);
-    } catch(e) {
+    } catch (e) {
       err = e;
     }
     expect(err).toBeTruthy();

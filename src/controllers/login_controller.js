@@ -18,9 +18,9 @@ const JSONWebToken = require('../models/jsonwebtoken');
 const Passwords = require('../passwords');
 const Constants = require('../constants');
 
-var LoginController = Router();
+const LoginController = Router();
 
-const loginRoot = path.join(Constants.STATIC_PATH, 'login');
+const loginRoot = path.join(Constants.BUILD_STATIC_PATH, 'login');
 
 /**
  * Serve the static login page
@@ -39,7 +39,7 @@ LoginController.post('/', async (request, response) => {
     return;
   }
 
-  const user = await Users.getUser(body.email);
+  const user = await Users.getUser(body.email.toLowerCase());
   if (!user) {
     response.sendStatus(401);
     return;

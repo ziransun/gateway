@@ -4,6 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 /**
  * A simple helper class for sending JSON-formatted errors to clients
  */
@@ -11,9 +13,9 @@ class APIError extends Error {
   constructor(message, originalError) {
     super(message);
     if (originalError) {
-      this.message += ': ' + originalError.message;
+      this.message += `: ${originalError.message}`;
     }
-    console.error('new API Error: ' + this.message);
+    console.error(`new API Error: ${this.message}`);
   }
 
   toString() {

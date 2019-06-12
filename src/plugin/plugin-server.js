@@ -14,12 +14,13 @@
 'use strict';
 
 const Constants = require('../constants');
+const EventEmitter = require('events');
 const IpcSocket = require('./ipc');
 const Plugin = require('./plugin');
 
-class PluginServer {
-
-  constructor(addonManager, {verbose}={}) {
+class PluginServer extends EventEmitter {
+  constructor(addonManager, {verbose} = {}) {
+    super();
     this.manager = addonManager;
 
     this.verbose = verbose;
@@ -36,10 +37,19 @@ class PluginServer {
   /**
    * @method addAdapter
    *
-   * Tells the adapter manager about new adapters added via a plugin.
+   * Tells the add-on manager about new adapters added via a plugin.
    */
   addAdapter(adapter) {
     this.manager.addAdapter(adapter);
+  }
+
+  /**
+   * @method addNotifier
+   *
+   * Tells the add-on manager about new notifiers added via a plugin.
+   */
+  addNotifier(notifier) {
+    this.manager.addNotifier(notifier);
   }
 
   /**
@@ -54,9 +64,8 @@ class PluginServer {
       console.log('PluginServer: Rcvd:', msg);
 
     switch (msg.messageType) {
-
-      case Constants.REGISTER_PLUGIN:
-        var plugin = this.registerPlugin(msg.data.pluginId);
+      case Constants.REGISTER_PLUGIN: {
+        const plugin = this.registerPlugin(msg.data.pluginId);
         this.ipcSocket.sendJson({
           messageType: Constants.REGISTER_PLUGIN_REPLY,
           data: {
@@ -65,7 +74,7 @@ class PluginServer {
           },
         });
         break;
-
+      }
     }
   }
 
@@ -84,7 +93,7 @@ class PluginServer {
    * Loads a plugin by launching a separate process.
    */
   loadPlugin(pluginPath, manifest) {
-    let plugin = this.registerPlugin(manifest.name);
+    const plugin = this.registerPlugin(manifest.name);
     plugin.exec = manifest.moziot.exec;
     plugin.execPath = pluginPath;
     plugin.start();
@@ -97,7 +106,7 @@ class PluginServer {
    * via IPC.
    */
   registerPlugin(pluginId) {
-    var plugin = this.plugins.get(pluginId);
+    let plugin = this.plugins.get(pluginId);
     if (plugin) {
       // This is a plugin that we already know about.
     } else {
@@ -115,9 +124,10 @@ class PluginServer {
    */
   unregisterPlugin(pluginId) {
     this.plugins.delete(pluginId);
-    if (this.plugins.size == 0) {
-      this.ipcSocket.close();
-    }
+  }
+
+  shutdown() {
+    this.ipcSocket.close();
   }
 }
 

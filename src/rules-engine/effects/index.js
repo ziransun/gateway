@@ -4,11 +4,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const effects = {
   Effect: require('./Effect'),
   ActionEffect: require('./ActionEffect'),
+  MultiEffect: require('./MultiEffect'),
+  NotificationEffect: require('./NotificationEffect'),
   SetEffect: require('./SetEffect'),
-  PulseEffect: require('./PulseEffect')
+  PulseEffect: require('./PulseEffect'),
 };
 
 /**
@@ -18,14 +22,14 @@ const effects = {
  * @return {Effect}
  */
 function fromDescription(desc) {
-  let EffectClass = effects[desc.type];
+  const EffectClass = effects[desc.type];
   if (!EffectClass) {
-    throw new Error('Unsupported or invalid effect type:' + desc.type);
+    throw new Error(`Unsupported or invalid effect type:${desc.type}`);
   }
   return new EffectClass(desc);
 }
 
 module.exports = {
   effects: effects,
-  fromDescription: fromDescription
+  fromDescription: fromDescription,
 };

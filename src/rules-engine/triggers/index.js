@@ -4,13 +4,17 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const triggers = {
   BooleanTrigger: require('./BooleanTrigger'),
+  EqualityTrigger: require('./EqualityTrigger'),
   EventTrigger: require('./EventTrigger'),
   LevelTrigger: require('./LevelTrigger'),
+  MultiTrigger: require('./MultiTrigger'),
   PropertyTrigger: require('./PropertyTrigger'),
   TimeTrigger: require('./TimeTrigger'),
-  Trigger: require('./Trigger')
+  Trigger: require('./Trigger'),
 };
 
 /**
@@ -20,14 +24,14 @@ const triggers = {
  * @return {Trigger}
  */
 function fromDescription(desc) {
-  let TriggerClass = triggers[desc.type];
+  const TriggerClass = triggers[desc.type];
   if (!TriggerClass) {
-    throw new Error('Unsupported or invalid trigger type:' + desc.type);
+    throw new Error(`Unsupported or invalid trigger type:${desc.type}`);
   }
   return new TriggerClass(desc);
 }
 
 module.exports = {
   triggers: triggers,
-  fromDescription: fromDescription
+  fromDescription: fromDescription,
 };

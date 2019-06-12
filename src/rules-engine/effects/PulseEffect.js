@@ -4,6 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const assert = require('assert');
 const PropertyEffect = require('./PropertyEffect');
 
@@ -19,7 +21,7 @@ class PulseEffect extends PropertyEffect {
     super(desc);
     this.value = desc.value;
     assert(typeof this.value === this.property.type,
-      'setpoint and property must be same type');
+           'setpoint and property must be same type');
     this.on = false;
     this.oldValue = null;
   }
@@ -45,15 +47,21 @@ class PulseEffect extends PropertyEffect {
       }
       // Activate the effect and save our current state to revert to upon
       // deactivation
-       this.property.get().then(value => {
-        this.oldValue = value;
+      this.property.get().then((value) => {
+        if (value !== this.value) {
+          this.oldValue = value;
+        } else {
+          this.oldValue = null;
+        }
         this.on = true;
         return this.property.set(this.value);
       });
     } else if (this.on) {
-      // Revert to our original value
+      // Revert to our original value if we pulsed to a new value
       this.on = false;
-      return this.property.set(this.oldValue);
+      if (this.oldValue !== null) {
+        return this.property.set(this.oldValue);
+      }
     }
   }
 }

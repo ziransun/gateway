@@ -14,11 +14,13 @@
 const AddonManagerProxy = require('./addon-manager-proxy');
 const Constants = require('../constants');
 const Deferred = require('../deferred');
+const EventEmitter = require('events');
 const IpcSocket = require('./ipc');
 
-class PluginClient {
+class PluginClient extends EventEmitter {
 
-  constructor(pluginId, {verbose}={}) {
+  constructor(pluginId, {verbose} = {}) {
+    super();
     this.pluginId = pluginId;
     this.verbose = verbose;
     this.deferredReply = null;
@@ -34,7 +36,6 @@ class PluginClient {
     }
 
     if (msg.messageType === Constants.REGISTER_PLUGIN_REPLY) {
-
       this.addonManager = new AddonManagerProxy(this);
 
       // Now that we're registered with the server, open the plugin
@@ -49,7 +50,7 @@ class PluginClient {
         console.log('PluginClient: registered with PluginServer:',
                     this.pluginIpcSocket.ipcAddr);
 
-      var deferredReply = this.deferredReply;
+      const deferredReply = this.deferredReply;
       this.deferredReply = null;
       deferredReply.resolve(this.addonManager);
     } else {
@@ -79,7 +80,7 @@ class PluginClient {
     this.managerIpcSocket.sendJson({
       messageType: Constants.REGISTER_PLUGIN,
       data: {
-        pluginId: this.pluginId
+        pluginId: this.pluginId,
       },
     });
 
@@ -97,6 +98,7 @@ class PluginClient {
   unload() {
     this.pluginIpcSocket.close();
     this.managerIpcSocket.close();
+    this.emit('unloaded', {});
   }
 }
 

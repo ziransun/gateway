@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 #
 # This script takes a base image and adds the gateway code to make
 # the final gateway image.
@@ -9,6 +9,14 @@
 
 SCRIPT_NAME=$(basename $0)
 VERBOSE=0
+REMOVE_BASE_AFTER_UNZIP=0
+
+GATEWAY_VERSION='0.8.0'
+V8_VERSION='57'
+ARCHITECTURE='linux-arm'
+PYTHON_VERSIONS='2.7,3.5'
+ADDON_API='2'
+ADDON_LIST_URL='https://api.mozilla-iot.org:8443/addons'
 
 ###########################################################################
 #
@@ -16,8 +24,23 @@ VERBOSE=0
 #
 
 usage() {
-  echo "Usage: ${SCRIPT_NAME} [-v] BASE_IMAGE"
+  echo "Usage: ${SCRIPT_NAME} [-v] [-g gateway-tarball] BASE_IMAGE"
 }
+
+###########################################################################
+#
+# Retrieves the addon URL from the addon list
+#
+get_addon_url() {
+  addon_list=$1
+  addon_name=$2
+  url=$(echo "${addon_list}" | python3 -c \
+    "import json, sys; \
+    l = json.loads(sys.stdin.read()); \
+    print([p['url'] for p in l if p['name'] == '${addon_name}'][0]);")
+  echo "${url}"
+}
+
 
 ###########################################################################
 #
@@ -25,16 +48,20 @@ usage() {
 #
 main() {
 
-  while getopts "g:o:v" opt "$@"; do
+  while getopts "g:ho:rv" opt "$@"; do
     case $opt in
       g)
         GATEWAY_TARBALL=${OPTARG}
         ;;
-      o)
-        OPENZWAVE_TARBALL=${OPTARG}
+      r)
+        REMOVE_BASE_AFTER_UNZIP=1
         ;;
       v)
         VERBOSE=1
+        ;;
+      h)
+        usage
+        exit 1
         ;;
       ?)
         echo "Unrecognized option: ${opt}"
@@ -52,9 +79,9 @@ main() {
   fi
 
   if [ "${VERBOSE}" == "1" ]; then
-    echo "        Base Image: ${BASE_IMAGE}"
-    echo "   Gateway tarball: ${GATEWAY_TARBALL}"
-    echo "Open-ZWave tarball: ${OPENZWAVE_TARBALL}"
+    echo "             Base Image: ${BASE_IMAGE}"
+    echo "        Gateway tarball: ${GATEWAY_TARBALL}"
+    echo "Remove base after unzip: ${REMOVE_BASE_AFTER_UNZIP}"
   fi
 
   if [ ! -f "${BASE_IMAGE}" ]; then
@@ -67,21 +94,25 @@ main() {
     exit 1
   fi
 
-  if [ ! -z "${OPENZWAVE_TARBALL}" -a ! -f "${OPENZWAVE_TARBALL}" ]; then
-    echo "Open-ZWave tarball '${OPENZWAVE_TARBALL}' not found".
+  GATEWAY_IMAGE="${BASE_IMAGE/-base/}"
+  if [ "${GATEWAY_IMAGE}" == "${BASE_IMAGE}" ]; then
+    echo "BASE image name doesn't have '-base' in it"
     exit 1
   fi
 
   if [[ "${BASE_IMAGE}" == *.zip ]]; then
     # Unzip the base image
-    GATEWAY_IMAGE="${BASE_IMAGE/.zip/-final.img}"
+    GATEWAY_IMAGE="${GATEWAY_IMAGE/.img.zip/.img}"
     echo "Unzipping '${BASE_IMAGE}' to '${GATEWAY_IMAGE}'"
-    unzip -p ${BASE_IMAGE} > ${GATEWAY_IMAGE}
+    unzip -p "${BASE_IMAGE}" > "${GATEWAY_IMAGE}"
   else
     # Make a copy of the base image
-    GATEWAY_IMAGE="${BASE_IMAGE/.img/-final.img}"
     echo "Copying '${BASE_IMAGE}' to '${GATEWAY_IMAGE}'"
     cp "${BASE_IMAGE}" "${GATEWAY_IMAGE}"
+  fi
+  if [ "${REMOVE_BASE_AFTER_UNZIP}" = "1" ]; then
+    echo "Removing base image: ${BASE_IMAGE}"
+    rm -f "${BASE_IMAGE}"
   fi
 
   # Figure out the device names that kpartx will create
@@ -148,12 +179,6 @@ main() {
   fi
   ROOT_MOUNTED=1
 
-  if [ ! -z "${OPENZWAVE_TARBALL}" ]; then
-    # Copy in the Open-ZWave files
-    echo "Adding Open-ZWave files from ${OPENZWAVE_TARBALL} to image"
-    sudo tar xf ${OPENZWAVE_TARBALL} -C ${ROOT_MOUNTPOINT}
-  fi
-
   if [ ! -z "${GATEWAY_TARBALL}" ]; then
     # Copy in the gateway files
     echo "Adding gateway files from ${GATEWAY_TARBALL} to image"
@@ -163,55 +188,29 @@ main() {
 
     # Install default add-ons
     sudo mkdir -p "${ADDONS_DIR}"
-    addon_list=$(curl "https://raw.githubusercontent.com/mozilla-iot/addon-list/master/list.json")
+    params="?api=${ADDON_API}&arch=${ARCHITECTURE}&node=${V8_VERSION}&python=${PYTHON_VERSIONS}&version=${GATEWAY_VERSION}"
+    addon_list=$(curl "${ADDON_LIST_URL}${params}")
     tempdir=$(mktemp -d)
-    zigbee_url=$(echo "${addon_list}" | python3 -c \
-      "import json, sys; \
-      l = json.loads(sys.stdin.read()); \
-      print([x['url'] for x in l if x['name'] == 'zigbee-adapter'][0]);")
+    zigbee_url=$(get_addon_url "${addon_list}" 'zigbee-adapter')
     curl -L -o "${tempdir}/zigbee-adapter.tgz" "${zigbee_url}"
     sudo tar xzf "${tempdir}/zigbee-adapter.tgz" -C "${ADDONS_DIR}"
     sudo mv "${ADDONS_DIR}/package" "${ADDONS_DIR}/zigbee-adapter"
-    zwave_url=$(echo "${addon_list}" | python3 -c \
-      "import json, sys; \
-      l = json.loads(sys.stdin.read()); \
-      print([x['url'] for x in l if x['name'] == 'zwave-adapter'][0]);")
+    zwave_url=$(get_addon_url "${addon_list}" 'zwave-adapter')
     curl -L -o "${tempdir}/zwave-adapter.tgz" "${zwave_url}"
     sudo tar xzf "${tempdir}/zwave-adapter.tgz" -C "${ADDONS_DIR}"
     sudo mv "${ADDONS_DIR}/package" "${ADDONS_DIR}/zwave-adapter"
+    thing_url=$(get_addon_url "${addon_list}" 'thing-url-adapter')
+    curl -L -o "${tempdir}/thing-url-adapter.tgz" "${thing_url}"
+    sudo tar xzf "${tempdir}/thing-url-adapter.tgz" -C "${ADDONS_DIR}"
+    sudo mv "${ADDONS_DIR}/package" "${ADDONS_DIR}/thing-url-adapter"
     rm -rf "${tempdir}"
 
-    # Setup things so that the filesystem gets resized
-    # on the next boot.
+    # Create the .post_upgrade_complete file so that it doesn't try
+    # to upgrade on the first boot.
 
-    sudo sh -c "cat > '${ETC_DIR}/init.d/resize2fs_once'" <<'END'
-#!/bin/sh
-### BEGIN INIT INFO
-# Provides:          resize2fs_once
-# Required-Start:
-# Required-Stop:
-# Default-Start: 3
-# Default-Stop:
-# Short-Description: Resize the root filesystem to fill partition
-# Description:
-### END INIT INFO
-. /lib/lsb/init-functions
-case "$1" in
-  start)
-    log_daemon_msg "Starting resize2fs_once"
-    ROOT_DEV=$(findmnt / -o source -n) &&
-    resize2fs $ROOT_DEV &&
-    update-rc.d resize2fs_once remove &&
-    rm /etc/init.d/resize2fs_once &&
-    log_end_msg $?
-    ;;
-  *)
-    echo "Usage: $0 start" >&2
-    exit 3
-    ;;
-esac
-END
-    sudo chmod +x "${ETC_DIR}/init.d/resize2fs_once"
+    sudo touch ${MOZILLA_IOT_DIR}/gateway/.post_upgrade_complete
+
+    # Setup things so that the filesystem gets resized on the next boot.
     sudo ln -s "../init.d/resize2fs_once" "${ETC_DIR}/rc3.d/S01resize2fs_once"
 
     if ! grep -q 'init_resize.sh' ${CMDLINE} ; then
@@ -233,9 +232,13 @@ END
     echo "Contents of ${ROOT_MOUNTPOINT}/usr/local/lib"
     ls -l ${ROOT_MOUNTPOINT}/usr/local/lib
   fi
+
+  df -h "${BOOT_MOUNTPOINT}"
+  df -h "${ROOT_MOUNTPOINT}"
+
   cleanup
 
-  echo "Created gateway image: ${GATEWAY_IMAGE}"
+  echo "Created gateway image:     ${GATEWAY_IMAGE}"
 }
 
 ###########################################################################
@@ -249,16 +252,18 @@ function cleanup() {
     sudo umount ${ROOT_MOUNTPOINT}
     ROOT_MOUNTED=0
   fi
-  if [ -d ${ROOT_MOUNTPOINT} ]; then
-    sudo rmdir ${ROOT_MOUNTPOINT}
+  if [ -n "${ROOT_MOUNTPOINT}" -a -d "${ROOT_MOUNTPOINT}" ]; then
+    echo "Removing root mountpoint ${ROOT_MOUNTPOINT}"
+    sudo rmdir "${ROOT_MOUNTPOINT}"
   fi
   if [ "${BOOT_MOUNTED}" == 1 ]; then
     echo "Unmounting ${BOOT_DEV}"
     sudo umount ${BOOT_MOUNTPOINT}
     BOOT_MOUNTED=0
   fi
-  if [ -d ${BOOT_MOUNTPOINT} ]; then
-    sudo rmdir ${BOOT_MOUNTPOINT}
+  if [ -n "${BOOT_MOUNTPOINT}" -a -d "${BOOT_MOUNTPOINT}" ]; then
+    echo "Removing boot mountpoint ${BOOT_MOUNTPOINT}"
+    sudo rmdir "${BOOT_MOUNTPOINT}"
   fi
   if [ "${LOOP_MOUNT_CREATED}" == 1 ]; then
     echo "Removing loop mounts"

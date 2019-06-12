@@ -13,29 +13,26 @@
 
 const config = require('config');
 const Constants = require('./constants');
-const EventEmitter = require('events').EventEmitter;
 const Deferred = require('./deferred');
-const PluginClient = require('./plugin/plugin-client');
-const PluginServer = require('./plugin/plugin-server');
+const dynamicRequire = require('./dynamic-require');
+const EventEmitter = require('events').EventEmitter;
+const Platform = require('./platform');
 const Settings = require('./models/settings');
 const UserProfile = require('./user-profile');
+const Utils = require('./utils');
 const fs = require('fs');
 const path = require('path');
 const rimraf = require('rimraf');
+const semver = require('semver');
 const tar = require('tar');
-const Utils = require('./utils');
 const os = require('os');
 const promisePipe = require('promisepipe');
 const fetch = require('node-fetch');
+const {URLSearchParams} = require('url');
 
-// Use webpack provided require for dynamic includes from the bundle  .
-const dynamicRequire = (() => {
-  if (typeof __non_webpack_require__ !== 'undefined') {
-    // eslint-disable-next-line no-undef
-    return __non_webpack_require__;
-  }
-  return require;
-})();
+const pkg = require('../package.json');
+
+let PluginClient, PluginServer;
 
 /**
  * @class AddonManager
@@ -47,7 +44,9 @@ class AddonManager extends EventEmitter {
   constructor() {
     super();
     this.adapters = new Map();
+    this.notifiers = new Map();
     this.devices = {};
+    this.outlets = {};
     this.deferredAdd = null;
     this.deferredRemove = null;
     this.addonsLoaded = false;
@@ -76,11 +75,29 @@ class AddonManager extends EventEmitter {
      */
     this.emit(Constants.ADAPTER_ADDED, adapter);
 
-    var deferredWait = this.deferredWaitForAdapter.get(adapter.id);
+    const deferredWait = this.deferredWaitForAdapter.get(adapter.id);
     if (deferredWait) {
       this.deferredWaitForAdapter.delete(adapter.id);
       deferredWait.resolve(adapter);
     }
+  }
+
+  addNotifier(notifier) {
+    if (!notifier.name) {
+      notifier.name = notifier.constructor.name;
+    }
+
+    this.notifiers.set(notifier.id, notifier);
+
+    /**
+     * Notifier added event.
+     *
+     * This is event is emitted whenever a new notifier is loaded.
+     *
+     * @event notifierAdded
+     * @type {Adapter}
+     */
+    this.emit(Constants.NOTIFIER_ADDED, notifier);
   }
 
   /**
@@ -90,7 +107,7 @@ class AddonManager extends EventEmitter {
    * @returns A promise that resolves to the newly added device.
    */
   addNewThing(pairingTimeout) {
-    var deferredAdd = new Deferred();
+    const deferredAdd = new Deferred();
 
     if (this.deferredAdd) {
       deferredAdd.reject('Add already in progress');
@@ -98,7 +115,7 @@ class AddonManager extends EventEmitter {
       deferredAdd.reject('Remove already in progress');
     } else {
       this.deferredAdd = deferredAdd;
-      this.adapters.forEach(adapter => {
+      this.adapters.forEach((adapter) => {
         console.log('About to call startPairing on', adapter.name);
         adapter.startPairing(pairingTimeout);
       });
@@ -118,7 +135,7 @@ class AddonManager extends EventEmitter {
    * Cancels a previous addNewThing request.
    */
   cancelAddNewThing() {
-    var deferredAdd = this.deferredAdd;
+    const deferredAdd = this.deferredAdd;
 
     if (this.pairingTimeout) {
       clearTimeout(this.pairingTimeout);
@@ -126,7 +143,7 @@ class AddonManager extends EventEmitter {
     }
 
     if (deferredAdd) {
-      this.adapters.forEach(adapter => {
+      this.adapters.forEach((adapter) => {
         adapter.cancelPairing();
       });
       this.deferredAdd = null;
@@ -140,11 +157,11 @@ class AddonManager extends EventEmitter {
    * Cancels a previous removeThing request.
    */
   cancelRemoveThing(thingId) {
-    var deferredRemove = this.deferredRemove;
+    const deferredRemove = this.deferredRemove;
     if (deferredRemove) {
-      var device = this.getDevice(thingId);
+      const device = this.getDevice(thingId);
       if (device) {
-        var adapter = device.adapter;
+        const adapter = device.adapter;
         if (adapter) {
           adapter.cancelRemoveThing(device);
         }
@@ -181,6 +198,32 @@ class AddonManager extends EventEmitter {
   }
 
   /**
+   * @method getNotifiers
+   * @returns Returns a Map of the loaded notifiers. The dictionary
+   *          key corresponds to the notifier id.
+   */
+  getNotifiers() {
+    return this.notifiers;
+  }
+
+  /**
+   * @method getNotifier
+   * @returns Returns the notifier with the indicated id.
+   */
+  getNotifier(notifierId) {
+    return this.notifiers.get(notifierId);
+  }
+
+  /**
+   * @method getNotifiersByPackageName
+   * @returns Returns a list of loaded notifiers with the given package name.
+   */
+  getNotifiersByPackageName(packageName) {
+    return Array.from(this.notifiers.values()).filter(
+      (n) => n.getPackageName() === packageName);
+  }
+
+  /**
    * @method getDevice
    * @returns Returns the device with the indicated id.
    */
@@ -195,6 +238,23 @@ class AddonManager extends EventEmitter {
    */
   getDevices() {
     return this.devices;
+  }
+
+  /**
+   * @method getOutlet
+   * @returns Returns the outlet with the indicated id.
+   */
+  getOutlet(id) {
+    return this.outlets[id];
+  }
+
+  /**
+   * @method getOutlets
+   * @returns Returns an dictionary of all of the known outlets.
+   *          The dictionary key corresponds to the outlet id.
+   */
+  getOutlets() {
+    return this.outlets;
   }
 
   /**
@@ -214,8 +274,8 @@ class AddonManager extends EventEmitter {
    *          The dictionary key corresponds to the device id.
    */
   getThings() {
-    var things = [];
-    for (var thingId in this.devices) {
+    const things = [];
+    for (const thingId in this.devices) {
       things.push(this.getThing(thingId));
     }
     return things;
@@ -226,7 +286,7 @@ class AddonManager extends EventEmitter {
    * @returns Returns the thing with the indicated id.
    */
   getThing(thingId) {
-    var device = this.getDevice(thingId);
+    const device = this.getDevice(thingId);
     if (device) {
       return device.asThing();
     }
@@ -238,7 +298,7 @@ class AddonManager extends EventEmitter {
    *          identified by `thingId`.
    */
   getPropertyDescriptions(thingId) {
-    var device = this.getDevice(thingId);
+    const device = this.getDevice(thingId);
     if (device) {
       return device.getPropertyDescriptions();
     }
@@ -250,7 +310,7 @@ class AddonManager extends EventEmitter {
    *          identified by `thingId`.
    */
   getPropertyDescription(thingId, propertyName) {
-    var device = this.getDevice(thingId);
+    const device = this.getDevice(thingId);
     if (device) {
       return device.getPropertyDescription(propertyName);
     }
@@ -262,13 +322,12 @@ class AddonManager extends EventEmitter {
    *          from the thing identified by `thingId`.
    */
   getProperty(thingId, propertyName) {
-    var device = this.getDevice(thingId);
+    const device = this.getDevice(thingId);
     if (device) {
       return device.getProperty(propertyName);
     }
-    return new Promise((resolve, reject) => {
-      reject('getProperty: device: ' + thingId + ' not found.');
-    });
+
+    return Promise.reject(`getProperty: device: ${thingId} not found.`);
   }
 
   /**
@@ -277,13 +336,77 @@ class AddonManager extends EventEmitter {
    *          for the thing identified by `thingId`.
    */
   setProperty(thingId, propertyName, value) {
-    var device = this.getDevice(thingId);
+    const device = this.getDevice(thingId);
     if (device) {
       return device.setProperty(propertyName, value);
     }
-    return new Promise((resolve, reject) => {
-      reject('setProperty: device: ' + thingId + ' not found.');
-    });
+
+    return Promise.reject(`setProperty: device: ${thingId} not found.`);
+  }
+
+  /**
+   * @method notify
+   * @returns a promise which resolves when the outlet has been notified.
+   */
+  notify(outletId, title, message, level) {
+    const outlet = this.getOutlet(outletId);
+    if (outlet) {
+      return outlet.notify(title, message, level);
+    }
+
+    return Promise.reject(`notify: outlet: ${outletId} not found.`);
+  }
+
+  /**
+   * @method setPin
+   * @returns a promise which resolves when the PIN has been set.
+   */
+  setPin(thingId, pin) {
+    const device = this.getDevice(thingId);
+    if (device) {
+      return device.adapter.setPin(thingId, pin);
+    }
+
+    return Promise.reject(`setPin: device ${thingId} not found.`);
+  }
+
+  /**
+   * @method setCredentials
+   * @returns a promise which resolves when the credentials have been set.
+   */
+  setCredentials(thingId, username, password) {
+    const device = this.getDevice(thingId);
+    if (device) {
+      return device.adapter.setCredentials(thingId, username, password);
+    }
+
+    return Promise.reject(`setCredentials: device ${thingId} not found.`);
+  }
+
+  /**
+   * @method requestAction
+   * @returns a promise which resolves when the action has been requested.
+   */
+  requestAction(thingId, actionId, actionName, input) {
+    const device = this.getDevice(thingId);
+    if (device) {
+      return device.requestAction(actionId, actionName, input);
+    }
+
+    return Promise.reject(`requestAction: device: ${thingId} not found.`);
+  }
+
+  /**
+   * @method removeAction
+   * @returns a promise which resolves when the action has been removed.
+   */
+  removeAction(thingId, actionId, actionName) {
+    const device = this.getDevice(thingId);
+    if (device) {
+      return device.removeAction(actionId, actionName);
+    }
+
+    return Promise.reject(`removeAction: device: ${thingId} not found.`);
   }
 
   /**
@@ -293,7 +416,7 @@ class AddonManager extends EventEmitter {
    */
   handleDeviceAdded(device) {
     this.devices[device.id] = device;
-    var thing = device.asThing();
+    const thing = device.asThing();
 
     /**
      * Thing added event.
@@ -308,10 +431,10 @@ class AddonManager extends EventEmitter {
     // If this device was added in response to addNewThing, then
     // We need to cancel pairing mode on all of the "other" adapters.
 
-    var deferredAdd = this.deferredAdd;
+    const deferredAdd = this.deferredAdd;
     if (deferredAdd) {
       this.deferredAdd = null;
-      this.adapters.forEach(adapter => {
+      this.adapters.forEach((adapter) => {
         if (adapter !== device.adapter) {
           adapter.cancelPairing();
         }
@@ -326,27 +449,64 @@ class AddonManager extends EventEmitter {
 
   /**
    * @method handleDeviceRemoved
-   * Called when the indicated device has been removed an adapter.
+   * Called when the indicated device has been removed by an adapter.
    */
   handleDeviceRemoved(device) {
     delete this.devices[device.id];
-    var thing = device.asThing();
+    const thing = device.asThing();
 
     /**
      * Thing removed event.
      *
-     * This event is emitted whenever a new thing is removed.
+     * This event is emitted whenever a thing is removed.
      *
      * @event thingRemoved
      * @type  {Thing}
      */
     this.emit(Constants.THING_REMOVED, thing);
 
-    var deferredRemove = this.deferredRemove;
+    const deferredRemove = this.deferredRemove;
     if (deferredRemove && deferredRemove.adapter == device.adapter) {
       this.deferredRemove = null;
       deferredRemove.resolve(device.id);
     }
+  }
+
+  /**
+   * @method handleOutletAdded
+   *
+   * Called when the indicated outlet has been added to a notifier.
+   */
+  handleOutletAdded(outlet) {
+    this.outlets[outlet.id] = outlet;
+
+    /**
+     * Outlet added event.
+     *
+     * This event is emitted whenever a new outlet is added.
+     *
+     * @event outletAdded
+     * @type {Outlet}
+     */
+    this.emit(Constants.OUTLET_ADDED, outlet.asDict());
+  }
+
+  /**
+   * @method handleOutletRemoved
+   * Called when the indicated outlet has been removed by a notifier.
+   */
+  handleOutletRemoved(outlet) {
+    delete this.outlets[outlet.id];
+
+    /**
+     * Outlet removed event.
+     *
+     * This event is emitted whenever an outlet is removed.
+     *
+     * @event outletRemoved
+     * @type {Outlet}
+     */
+    this.emit(Constants.OUTLET_REMOVED, outlet.asDict());
   }
 
   /**
@@ -355,28 +515,28 @@ class AddonManager extends EventEmitter {
    * Verifies one level of an object, and recurses as required.
    */
   validateManifestObject(prefix, object, template) {
-    for (let key in template) {
+    for (const key in template) {
       if (key in object) {
-        let objectVal = object[key];
-        let templateVal = template[key];
-        if (typeof(objectVal) !== typeof(templateVal)) {
-          return `Expecting ${prefix}${key} to have type: ` +
-                 typeof(templateVal) + ', found: ' + typeof(objectVal);
+        const objectVal = object[key];
+        const templateVal = template[key];
+        if (typeof objectVal !== typeof templateVal) {
+          return `Expecting ${prefix}${key} to have type: ${
+            typeof templateVal}, found: ${typeof objectVal}`;
         }
-        if (typeof(objectVal) === 'object') {
+        if (typeof objectVal === 'object') {
           if (Array.isArray(objectVal)) {
             if (templateVal.length > 0) {
-              const expectedType = typeof(templateVal[0]);
+              const expectedType = typeof templateVal[0];
               for (const val of objectVal) {
-                if (typeof(val) !== expectedType) {
+                if (typeof val !== expectedType) {
                   return `Expecting all values in ${prefix}${key} to be of ` +
                     `type ${expectedType}`;
                 }
               }
             }
           } else {
-            let err = this.validateManifestObject(prefix + key + '.',
-                                                  objectVal, templateVal);
+            const err = this.validateManifestObject(`${prefix + key}.`,
+                                                    objectVal, templateVal);
             if (err) {
               return err;
             }
@@ -395,7 +555,7 @@ class AddonManager extends EventEmitter {
    * fields that we actually use.
    */
   validateManifest(manifest) {
-    let manifestTemplate = {
+    const manifestTemplate = {
       name: '',
       version: '',
       files: [''],
@@ -404,7 +564,7 @@ class AddonManager extends EventEmitter {
           min: 0,
           max: 0,
         },
-      }
+      },
     };
     if (config.get('ipc.protocol') !== 'inproc') {
       // If we're not using in-process plugins, then
@@ -412,6 +572,28 @@ class AddonManager extends EventEmitter {
       manifestTemplate.moziot.exec = '';
     }
     return this.validateManifestObject('', manifest, manifestTemplate);
+  }
+
+  /**
+   * @method addonEnabled
+   *
+   * Determine whether the add-on with the given package name is enabled.
+   *
+   * @param {string} packageName The package name of the add-on
+   * @returns {boolean} Boolean indicating enabled status.
+   */
+  async addonEnabled(packageName) {
+    const key = `addons.${packageName}`;
+    try {
+      const savedSettings = await Settings.get(key);
+      if (savedSettings && savedSettings.moziot) {
+        return savedSettings.moziot.enabled;
+      }
+
+      return false;
+    } catch (_) {
+      return false;
+    }
   }
 
   /**
@@ -502,16 +684,16 @@ class AddonManager extends EventEmitter {
         const data = fs.readFileSync(sumsFile, 'utf8');
         const lines = data.trim().split(/\r?\n/);
         for (const line of lines) {
-          const parts = line.trim().split(/\s+/);
-          if (parts.length !== 2) {
-            const err = `Invalid checksum in package ${manifest.name}`;
-            console.error(err);
-            return Promise.reject(err);
+          const checksum = line.slice(0, 64);
+          let filename = line.slice(64).trimLeft();
+
+          if (filename.startsWith('*')) {
+            filename = filename.substring(1);
           }
 
-          if (Utils.hashFile(path.join(addonPath, parts[1])) !== parts[0]) {
+          if (Utils.hashFile(path.join(addonPath, filename)) !== checksum) {
             const err =
-              `Checksum failed in package ${manifest.name}: ${parts[1]}`;
+              `Checksum failed in package ${manifest.name}: ${filename}`;
             console.error(err);
             return Promise.reject(err);
           }
@@ -525,7 +707,7 @@ class AddonManager extends EventEmitter {
     }
 
     // Verify that important fields exist in the manifest
-    let err = this.validateManifest(manifest);
+    const err = this.validateManifest(manifest);
     if (err) {
       return Promise.reject(
         `Error found in manifest for ${packageName}\n${err}`);
@@ -537,15 +719,15 @@ class AddonManager extends EventEmitter {
         manifest.moziot.api.max < apiVersion) {
       const err = `API mismatch for package: ${manifest.name}\nCurrent: ${
         apiVersion} Supported: ${manifest.moziot.api.min}-${
-          manifest.moziot.api.max}`;
+        manifest.moziot.api.max}`;
       console.error(err);
       return Promise.reject(err);
     }
 
     // Get any saved settings for this add-on.
     const key = `addons.${manifest.name}`;
-    let savedSettings = await Settings.get(key);
-    let newSettings = Object.assign({}, manifest);
+    const savedSettings = await Settings.get(key);
+    const newSettings = Object.assign({}, manifest);
     if (savedSettings) {
       // Overwrite config and enablement values.
       newSettings.moziot.enabled = savedSettings.moziot.enabled;
@@ -572,7 +754,7 @@ class AddonManager extends EventEmitter {
       return Promise.reject(err);
     }
 
-    const errorCallback = function(packageName, errorStr) {
+    const errorCallback = (packageName, errorStr) => {
       console.error('Failed to load', packageName, '-', errorStr);
     };
 
@@ -615,6 +797,8 @@ class AddonManager extends EventEmitter {
     this.addonsLoaded = true;
 
     // Load the Plugin Server
+    PluginClient = require('./plugin/plugin-client');
+    PluginServer = require('./plugin/plugin-server');
 
     this.pluginServer = new PluginServer(this, {verbose: false});
 
@@ -624,7 +808,7 @@ class AddonManager extends EventEmitter {
     const addonPath = UserProfile.addonsDir;
 
     // Search add-ons directory
-    fs.readdir(addonPath, async function(err, files) {
+    fs.readdir(addonPath, async (err, files) => {
       if (err) {
         // This should probably never happen.
         console.error('Failed to search add-ons directory');
@@ -639,7 +823,7 @@ class AddonManager extends EventEmitter {
           continue;
         }
 
-        addonManager.loadAddon(addonName).catch(err => {
+        addonManager.loadAddon(addonName).catch((err) => {
           console.error(`Failed to load add-on: ${addonName}\n${err}`);
         });
       }
@@ -668,26 +852,25 @@ class AddonManager extends EventEmitter {
    * from the one that they requested removal of.
    */
   removeThing(thingId) {
-    var deferredRemove = new Deferred();
+    const deferredRemove = new Deferred();
 
     if (this.deferredAdd) {
       deferredRemove.reject('Add already in progress');
     } else if (this.deferredRemove) {
       deferredRemove.reject('Remove already in progress');
     } else {
-      var device = this.getDevice(thingId);
+      const device = this.getDevice(thingId);
       if (device) {
         deferredRemove.adapter = device.adapter;
         this.deferredRemove = deferredRemove;
         device.adapter.removeThing(device);
       } else {
-        deferredRemove.reject('removeThing: thingId: ' + thingId +
-                              ' not found.');
+        deferredRemove.resolve(thingId);
       }
     }
 
     return deferredRemove.promise;
-   }
+  }
 
   /**
    * @method unloadAddons
@@ -702,14 +885,24 @@ class AddonManager extends EventEmitter {
       return Promise.resolve();
     }
 
-    let unloadPromises = [];
+    const unloadPromises = [];
+
     // unload the adapters in the reverse of the order that they were loaded.
     for (const adapterId of Array.from(this.adapters.keys()).reverse()) {
       unloadPromises.push(this.unloadAdapter(adapterId));
     }
 
+    // unload the notifiers in the reverse of the order that they were loaded.
+    for (const notifierId of Array.from(this.notifiers.keys()).reverse()) {
+      unloadPromises.push(this.unloadNotifier(notifierId));
+    }
+
     this.addonsLoaded = false;
-    return Promise.all(unloadPromises);
+    return Promise.all(unloadPromises).then(() => {
+      if (this.pluginServer) {
+        this.pluginServer.shutdown();
+      }
+    });
   }
 
   /**
@@ -725,7 +918,7 @@ class AddonManager extends EventEmitter {
       return Promise.resolve();
     }
 
-    let adapter = this.getAdapter(id);
+    const adapter = this.getAdapter(id);
     if (typeof adapter === 'undefined') {
       // This adapter wasn't loaded.
       return Promise.resolve();
@@ -737,13 +930,38 @@ class AddonManager extends EventEmitter {
   }
 
   /**
+   * @method unloadNotifier
+   * Unload the given notifier.
+   *
+   * @param {String} id The ID of the notifier to unload.
+   * @returns A promise which is resolved when the notifier is unloaded.
+   */
+  unloadNotifier(id) {
+    if (!this.addonsLoaded) {
+      // The add-ons are not currently loaded, no need to unload.
+      return Promise.resolve();
+    }
+
+    const notifier = this.getNotifier(id);
+    if (typeof notifier === 'undefined') {
+      // This notifier wasn't loaded.
+      return Promise.resolve();
+    }
+
+    console.log('Unloading', notifier.name);
+    this.notifiers.delete(notifier.id);
+    return notifier.unload();
+  }
+
+  /**
    * @method unloadAddon
    * Unload add-on with the given package name.
    *
    * @param {String} packageName The package name of the add-on to unload.
+   * @param {Boolean} wait Whether or not to wait for unloading to finish
    * @returns A promise which is resolved when the add-on is unloaded.
    */
-  unloadAddon(packageName) {
+  unloadAddon(packageName, wait) {
     if (!this.addonsLoaded) {
       // The add-ons are not currently loaded, no need to unload.
       return Promise.resolve();
@@ -757,11 +975,31 @@ class AddonManager extends EventEmitter {
 
     const adapters = this.getAdaptersByPackageName(packageName);
     const adapterIds = adapters.map((a) => a.id);
+    const notifiers = this.getNotifiersByPackageName(packageName);
+    const notifierIds = notifiers.map((n) => n.id);
+
     const unloadPromises = [];
-    for (const a of adapters) {
-      console.log('Unloading', a.name);
-      unloadPromises.push(a.unload());
-      this.adapters.delete(a.id);
+    if (adapters.length > 0) {
+      for (const a of adapters) {
+        console.log('Unloading', a.name);
+        unloadPromises.push(a.unload());
+        this.adapters.delete(a.id);
+      }
+    }
+
+    if (notifiers.length > 0) {
+      for (const n of notifiers) {
+        console.log('Unloading', n.name);
+        unloadPromises.push(n.unload());
+        this.notifiers.delete(n.id);
+      }
+    }
+
+    if (adapters.length === 0 && notifiers.length === 0 && plugin) {
+      // If there are no adapters, manually unload the plugin, otherwise it
+      // will just restart. Note that if the addon is disabled, then
+      // there might not be a plugin either.
+      plugin.unload();
     }
 
     // Give the process 3 seconds to exit before killing it.
@@ -778,10 +1016,30 @@ class AddonManager extends EventEmitter {
             this.handleDeviceRemoved(this.devices[deviceId]);
           }
         }
+
+        // Remove outlets owned by this add-on.
+        for (const outletId of Object.keys(this.outlets)) {
+          if (notifierIds.includes(this.outlets[outletId].notifier.id)) {
+            this.handleOutletRemoved(this.outlets[outletId]);
+          }
+        }
       }, Constants.UNLOAD_PLUGIN_KILL_DELAY);
     };
 
-    return Promise.all(unloadPromises).then(() => cleanup(), () => cleanup());
+    const all =
+      Promise.all(unloadPromises).then(() => cleanup(), () => cleanup());
+
+    if (wait) {
+      // If wait was set, wait 3 seconds + a little for the process to die.
+      // 3 seconds, because that's what is used in unloadAddon().
+      return all.then(() => {
+        return new Promise((resolve) => {
+          setTimeout(resolve, Constants.UNLOAD_PLUGIN_KILL_DELAY + 500);
+        });
+      });
+    }
+
+    return all;
   }
 
   /**
@@ -812,6 +1070,10 @@ class AddonManager extends EventEmitter {
 
     try {
       const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`HTTP error status: ${res.status}`);
+      }
+
       const dest = fs.createWriteStream(destPath);
       await promisePipe(res.body, dest);
     } catch (e) {
@@ -886,7 +1148,7 @@ class AddonManager extends EventEmitter {
         fs.mkdirSync(addonPath);
       }
     } catch (e) {
-      const err = `Failed to create add-on directory: ${addonPath}\n${e}`
+      const err = `Failed to create add-on directory: ${addonPath}\n${e}`;
       console.error(err);
       return Promise.reject(err);
     }
@@ -957,18 +1219,10 @@ class AddonManager extends EventEmitter {
   async uninstallAddon(packageName, wait, disable) {
     try {
       // Try to gracefully unload
-      await this.unloadAddon(packageName);
+      await this.unloadAddon(packageName, wait);
     } catch (e) {
       console.error(`Failed to unload ${packageName} properly: ${e}`);
       // keep going
-    }
-
-    if (wait) {
-      // If wait was set, wait 3 seconds + a little for the process to die.
-      // 3 seconds, because that's what is used in unloadAddon().
-      await new Promise((resolve) => {
-        setTimeout(resolve, Constants.UNLOAD_PLUGIN_KILL_DELAY + 500);
-      });
     }
 
     const addonPath = path.join(UserProfile.addonsDir, packageName);
@@ -992,7 +1246,7 @@ class AddonManager extends EventEmitter {
     // Update the saved settings and disable the add-on
     if (disable) {
       const key = `addons.${packageName}`;
-      let savedSettings = await Settings.get(key);
+      const savedSettings = await Settings.get(key);
       if (savedSettings) {
         savedSettings.moziot.enabled = false;
         await Settings.set(key, savedSettings);
@@ -1011,14 +1265,14 @@ class AddonManager extends EventEmitter {
    * ensure that tests don't proceed until
    */
   waitForAdapter(adapterId) {
-    var adapter = this.getAdapter(adapterId);
+    const adapter = this.getAdapter(adapterId);
     if (adapter) {
       // The adapter already exists, just create a Promise
       // that resolves to that.
       return Promise.resolve(adapter);
     }
 
-    var deferredWait = this.deferredWaitForAdapter.get(adapterId);
+    let deferredWait = this.deferredWaitForAdapter.get(adapterId);
     if (!deferredWait) {
       // No deferred wait currently setup. Set a new one up.
       deferredWait = new Deferred();
@@ -1036,34 +1290,42 @@ class AddonManager extends EventEmitter {
    * @returns A promise which is resolved when updating is complete.
    */
   async updateAddons() {
+    const url = config.get('addonManager.listUrl');
     const api = config.get('addonManager.api');
-    const architecture = Utils.getArchitecture();
+    const architecture = Platform.getArchitecture();
+    const version = pkg.version;
+    const nodeVersion = Platform.getNodeVersion();
+    const pythonVersions = Platform.getPythonVersions();
     const addonPath = UserProfile.addonsDir;
     const available = {};
 
     console.log('Checking for add-on updates...');
 
     try {
-      const response = await fetch(config.get('addonManager.listUrl'));
+      const params = new URLSearchParams();
+      params.set('api', api);
+      params.set('arch', architecture);
+      params.set('version', version);
+      params.set('node', nodeVersion);
+
+      if (pythonVersions && pythonVersions.length > 0) {
+        params.set('python', pythonVersions.join(','));
+      }
+
+      const response = await fetch(`${url}?${params.toString()}`, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': `mozilla-iot-gateway/${version}`,
+        },
+      });
       const list = await response.json();
 
       for (const addon of list) {
-        // Skip incompatible add-ons.
-        if (addon.api.min > api || addon.api.max < api) {
-          continue;
-        }
-
-        // Only support architecture-compatible add-ons.
-        for (const arch in addon.packages) {
-          if (arch === 'any' || arch === architecture) {
-            available[addon.name] = {
-              version: addon.version,
-              url: addon.packages[arch].url,
-              checksum: addon.packages[arch].checksum,
-            };
-            break;
-          }
-        }
+        available[addon.name] = {
+          version: addon.version,
+          url: addon.url,
+          checksum: addon.checksum,
+        };
       }
     } catch (e) {
       console.error('Failed to parse add-on list.');
@@ -1086,6 +1348,13 @@ class AddonManager extends EventEmitter {
           continue;
         }
 
+        // Skip if .git directory is present.
+        if (fs.existsSync(path.join(addonPath, addonName, '.git'))) {
+          console.log(
+            `Not updating ${addonName} since a .git directory was detected`);
+          continue;
+        }
+
         // Try to load package.json.
         const packageJson = path.join(addonPath, addonName, 'package.json');
         if (!fs.existsSync(packageJson)) {
@@ -1103,7 +1372,7 @@ class AddonManager extends EventEmitter {
 
         // Check if an update is available.
         if (available.hasOwnProperty(addonName) &&
-            available[addonName].version !== manifest.version) {
+            semver.lt(manifest.version, available[addonName].version)) {
           try {
             await this.uninstallAddon(addonName, true, false);
             await this.installAddonFromUrl(addonName,
@@ -1115,6 +1384,8 @@ class AddonManager extends EventEmitter {
           }
         }
       }
+
+      console.log('Finished updating add-ons');
     });
   }
 }

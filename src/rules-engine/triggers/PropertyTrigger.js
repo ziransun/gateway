@@ -4,6 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const Events = require('../Events');
 const Trigger = require('./Trigger');
 const Property = require('../Property');
@@ -13,7 +15,7 @@ const Property = require('../Property');
  */
 class PropertyTrigger extends Trigger {
   constructor(desc) {
-    super();
+    super(desc);
     this.property = new Property(desc.property);
     this.onValueChanged = this.onValueChanged.bind(this);
   }

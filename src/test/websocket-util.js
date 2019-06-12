@@ -10,8 +10,11 @@ const {server} = require('./common');
  * @return {WebSocket}
  */
 async function webSocketOpen(path, jwt) {
-  let addr = server.address();
-  let socketPath =
+  if (!server.address()) {
+    server.listen(0);
+  }
+  const addr = server.address();
+  const socketPath =
     `wss://127.0.0.1:${addr.port}${path}?jwt=${jwt}`;
 
   const ws = new WebSocket(socketPath);
@@ -24,7 +27,7 @@ async function webSocketOpen(path, jwt) {
   await e2p(ws, 'open');
 
   // Allow the app to handle the websocket open reaaallly slowwwwllllyyyy
-  await new Promise(res => {
+  await new Promise((res) => {
     setTimeout(res, 250);
   });
 
@@ -35,14 +38,21 @@ async function webSocketOpen(path, jwt) {
  * Read a known amount of messages from a websocket
  * @param {WebSocket} ws
  * @param {number} expectedMessages
+ * @param {boolean?} ignoreConnected - Whether or not to ignore 'connected'
+ *                   messages
  * @return {Array<Object>} read messages
  */
-async function webSocketRead(ws, expectedMessages) {
-  let messages = [];
+async function webSocketRead(ws, expectedMessages, ignoreConnected = true) {
+  const messages = [];
   while (messages.length < expectedMessages) {
     if (ws.unreadMessages.length > 0) {
       const data = ws.unreadMessages.shift();
       const parsed = JSON.parse(data);
+
+      if (ignoreConnected && parsed.messageType === 'connected') {
+        continue;
+      }
+
       messages.push(parsed);
     } else {
       await e2p(ws, 'message');
@@ -62,7 +72,7 @@ async function webSocketSend(ws, message) {
   }
 
   await new Promise((resolve) => {
-    ws.send(message, function() {
+    ws.send(message, () => {
       resolve();
     });
   });
@@ -80,5 +90,5 @@ module.exports = {
   webSocketOpen,
   webSocketRead,
   webSocketSend,
-  webSocketClose
+  webSocketClose,
 };

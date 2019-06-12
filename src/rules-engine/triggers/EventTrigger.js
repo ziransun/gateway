@@ -4,9 +4,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
-const Constants = require('../../constants.js');
+'use strict';
+
+const assert = require('assert');
 const Events = require('../Events');
-const ThingConnection = require('../ThingConnection');
+const Things = require('../../models/things');
 const Trigger = require('./Trigger');
 
 /**
@@ -14,11 +16,12 @@ const Trigger = require('./Trigger');
  */
 class EventTrigger extends Trigger {
   constructor(desc) {
-    super();
+    super(desc);
+    assert(desc.thing);
     this.thing = desc.thing;
     this.event = desc.event;
-    this.onMessage = this.onMessage.bind(this);
-    this.thingConn = new ThingConnection(desc.thing.href, this.onMessage);
+    this.stopped = true;
+    this.onEvent = this.onEvent.bind(this);
   }
 
   /**
@@ -29,34 +32,34 @@ class EventTrigger extends Trigger {
       super.toDescription(),
       {
         thing: this.thing,
-        event: this.event
+        event: this.event,
       }
     );
   }
 
   async start() {
-    await this.thingConn.start();
-    await this.thingConn.send(JSON.stringify({
-      messageType: Constants.ADD_EVENT_SUBSCRIPTION,
-      data: {
-        name: this.event
-      }
-    }));
-  }
-
-  onMessage(msg) {
-    if (msg.messageType !== 'event') {
+    this.stopped = false;
+    const thing = await Things.getThing(this.thing);
+    if (this.stopped) {
       return;
     }
-    if (msg.data.name !== this.event) {
+    thing.addEventSubscription(this.onEvent);
+  }
+
+  onEvent(event) {
+    if (this.event !== event.name) {
       return;
     }
 
     this.emit(Events.STATE_CHANGED, {on: true, value: Date.now()});
+    this.emit(Events.STATE_CHANGED, {on: false, value: Date.now()});
   }
 
   stop() {
-    this.thingConn.stop();
+    this.stopped = true;
+    Things.getThing(this.thing).then((thing) => {
+      thing.removeEventSubscription(this.onEvent);
+    });
   }
 }
 

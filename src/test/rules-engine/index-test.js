@@ -1,7 +1,7 @@
 const {server, chai, mockAdapter} = require('../common');
-const Settings = require('../../models/settings');
+const {waitForExpect} = require('../expect-utils');
+const util = require('util');
 
-const pFinal = require('../promise-final');
 const {
   TEST_USER,
   createUser,
@@ -9,101 +9,112 @@ const {
 } = require('../user');
 
 const Constants = require('../../constants');
+const Event = require('../../models/event');
+const Events = require('../../models/events');
 
 const {
   webSocketOpen,
   webSocketRead,
-  webSocketClose
+  webSocketClose,
 } = require('../websocket-util');
 
 const thingLight1 = {
   id: 'light1',
   name: 'light1',
   type: 'onOffSwitch',
+  '@context': 'https://iot.mozilla.org/schemas',
+  '@type': ['OnOffSwitch'],
   properties: {
     on: {type: 'boolean', value: false},
     hue: {type: 'number', value: 0},
     sat: {type: 'number', value: 0},
-    bri: {type: 'number', value: 100}
+    bri: {type: 'number', value: 100},
   },
   actions: {
     blink: {
-      description: 'Blink the switch on and off'
-    }
+      description: 'Blink the switch on and off',
+    },
   },
   events: {
     surge: {
-      description: 'Surge in power detected'
-    }
-  }
+      description: 'Surge in power detected',
+    },
+  },
 };
 
 const thingLight2 = {
   id: 'light2',
   name: 'light2',
   type: 'onOffSwitch',
+  '@context': 'https://iot.mozilla.org/schemas',
+  '@type': ['OnOffSwitch'],
   properties: {
     on: {type: 'boolean', value: false},
     hue: {type: 'number', value: 0},
     sat: {type: 'number', value: 0},
-    bri: {type: 'number', value: 100}
-  }
+    bri: {type: 'number', value: 100},
+  },
 };
 
 const thingLight3 = {
   id: 'light3',
   name: 'light3',
   type: 'onOffSwitch',
+  '@context': 'https://iot.mozilla.org/schemas',
+  '@type': ['OnOffSwitch'],
   properties: {
     on: {type: 'boolean', value: false},
     hue: {type: 'number', value: 0},
     sat: {type: 'number', value: 0},
-    bri: {type: 'number', value: 100}
-  }
+    bri: {type: 'number', value: 100},
+    color: {type: 'string', value: '#ff7700'},
+  },
 };
 
 const testRule = {
+  name: 'testRule',
   enabled: true,
   trigger: {
     property: {
-      name: 'on',
       type: 'boolean',
-      href: '/things/light1/properties/on'
+      id: 'on',
+      thing: 'light1',
     },
     type: 'BooleanTrigger',
-    onValue: true
+    onValue: true,
   },
   effect: {
     property: {
-      name: 'on',
       type: 'boolean',
-      href: '/things/light2/properties/on'
+      thing: 'light2',
+      id: 'on',
     },
     type: 'PulseEffect',
-    value: true
-  }
+    value: true,
+  },
 };
 
 const offRule = {
+  name: 'offRule',
   enabled: true,
   trigger: {
     property: {
-      name: 'on',
       type: 'boolean',
-      href: '/things/light1/properties/on'
+      thing: 'light1',
+      id: 'on',
     },
     type: 'BooleanTrigger',
-    onValue: false
+    onValue: false,
   },
   effect: {
     property: {
-      name: 'on',
       type: 'boolean',
-      href: '/things/light2/properties/on'
+      thing: 'light2',
+      id: 'on',
     },
     type: 'PulseEffect',
-    value: false
-  }
+    value: false,
+  },
 };
 
 const numberTestRule = {
@@ -111,24 +122,23 @@ const numberTestRule = {
   name: 'Number Test Rule',
   trigger: {
     property: {
-      name: 'hue',
       type: 'number',
-      href:
-        '/things/light2/properties/hue'
+      thing: 'light2',
+      id: 'hue',
     },
     type: 'LevelTrigger',
     levelType: 'GREATER',
-    level: 120
+    value: 120,
   },
   effect: {
     property: {
-      name: 'bri',
       type: 'number',
-      href: '/things/light3/properties/bri'
+      thing: 'light3',
+      id: 'bri',
     },
     type: 'PulseEffect',
-    value: 30
-  }
+    value: 30,
+  },
 };
 
 const mixedTestRule = {
@@ -136,24 +146,23 @@ const mixedTestRule = {
   name: 'Mixed Test Rule',
   trigger: {
     property: {
-      name: 'bri',
       type: 'number',
-      href:
-        '/things/light3/properties/bri'
+      thing: 'light3',
+      id: 'bri',
     },
     type: 'LevelTrigger',
     levelType: 'LESS',
-    level: 50
+    value: 50,
   },
   effect: {
     property: {
-      name: 'on',
       type: 'boolean',
-      href: '/things/light3/properties/on'
+      thing: 'light3',
+      id: 'on',
     },
     type: 'SetEffect',
-    value: true
-  }
+    value: true,
+  },
 };
 
 const eventActionRule = {
@@ -161,22 +170,121 @@ const eventActionRule = {
   name: 'Event Action Rule',
   trigger: {
     type: 'EventTrigger',
+    thing: 'light1',
     event: 'surge',
-    thing: {
-      href: '/things/light1'
-    }
   },
   effect: {
     type: 'ActionEffect',
+    thing: 'light1',
     action: 'blink',
-    thing: {
-      href: '/things/light1'
-    }
-  }
+  },
 };
 
-describe('rules engine', function() {
-  let ruleId = null, jwt, gatewayHref;
+const equalityRule = {
+  enabled: true,
+  name: 'Equality Rule',
+  trigger: {
+    type: 'EqualityTrigger',
+    property: {
+      type: 'string',
+      thing: 'light3',
+      id: 'color',
+    },
+    value: '#00ff77',
+  },
+  effect: {
+    property: {
+      type: 'boolean',
+      thing: 'light3',
+      id: 'on',
+    },
+    type: 'SetEffect',
+    value: true,
+  },
+};
+
+const complexTriggerRule = {
+  enabled: true,
+  name: 'Complex Trigger Rule',
+  trigger: {
+    type: 'MultiTrigger',
+    op: 'AND',
+    triggers: [{
+      type: 'BooleanTrigger',
+      property: {
+        type: 'boolean',
+        thing: 'light1',
+        id: 'on',
+      },
+      onValue: true,
+    }, {
+      type: 'MultiTrigger',
+      op: 'OR',
+      triggers: [{
+        type: 'BooleanTrigger',
+        property: {
+          type: 'boolean',
+          thing: 'light1',
+          id: 'on',
+        },
+        onValue: true,
+      }, {
+        type: 'BooleanTrigger',
+        property: {
+          type: 'boolean',
+          thing: 'light2',
+          id: 'on',
+        },
+        onValue: true,
+      }],
+    }],
+  },
+  effect: {
+    property: {
+      type: 'boolean',
+      thing: 'light3',
+      id: 'on',
+    },
+    type: 'SetEffect',
+    value: true,
+  },
+};
+
+const multiRule = {
+  enabled: true,
+  trigger: {
+    property: {
+      type: 'boolean',
+      thing: 'light1',
+      id: 'on',
+    },
+    type: 'BooleanTrigger',
+    onValue: true,
+  },
+  effect: {
+    effects: [{
+      property: {
+        type: 'boolean',
+        thing: 'light2',
+        id: 'on',
+      },
+      type: 'PulseEffect',
+      value: true,
+    }, {
+      property: {
+        type: 'boolean',
+        thing: 'light3',
+        id: 'on',
+      },
+      type: 'PulseEffect',
+      value: true,
+    }],
+    type: 'MultiEffect',
+  },
+};
+
+describe('rules engine', () => {
+  let ruleId = null, jwt;
 
   async function addDevice(desc) {
     const {id} = desc;
@@ -190,8 +298,8 @@ describe('rules engine', function() {
   }
 
   async function deleteRule(id) {
-    let res = await chai.request(server)
-      .delete(Constants.RULES_PATH + '/' + id)
+    const res = await chai.request(server)
+      .delete(`${Constants.RULES_PATH}/${id}`)
       .set('Accept', 'application/json')
       .set(...headerAuth(jwt))
       .send();
@@ -200,13 +308,6 @@ describe('rules engine', function() {
 
   beforeEach(async () => {
     jwt = await createUser(server, TEST_USER);
-    // common.js clears settings after every test so we need to restore the
-    // rules engine's
-    await Settings.set('RulesEngine.jwt', jwt);
-    if (!gatewayHref) {
-      gatewayHref = await Settings.get('RulesEngine.gateway');
-    }
-    await Settings.set('RulesEngine.gateway', gatewayHref);
     await addDevice(thingLight1);
     await addDevice(thingLight2);
     await addDevice(thingLight3);
@@ -223,18 +324,18 @@ describe('rules engine', function() {
   });
 
   it('fails to create a rule', async () => {
-    const err = await pFinal(chai.request(server)
+    const err = await chai.request(server)
       .post(Constants.RULES_PATH)
       .set('Accept', 'application/json')
       .set(...headerAuth(jwt))
       .send({
         trigger: {
           property: null,
-          type: 'Whatever'
+          type: 'Whatever',
         },
-        effect: testRule.effect
-      }));
-    expect(err.response.status).toEqual(400);
+        effect: testRule.effect,
+      });
+    expect(err.status).toEqual(400);
   });
 
   it('creates a rule', async () => {
@@ -259,8 +360,8 @@ describe('rules engine', function() {
   });
 
   it('gets this rule specifically', async () => {
-    let res = await chai.request(server)
-      .get(Constants.RULES_PATH + '/' + ruleId)
+    const res = await chai.request(server)
+      .get(`${Constants.RULES_PATH}/${ruleId}`)
       .set('Accept', 'application/json')
       .set(...headerAuth(jwt));
     expect(res.status).toEqual(200);
@@ -268,17 +369,17 @@ describe('rules engine', function() {
   });
 
   it('fails to get a nonexistent rule specifically', async () => {
-    const err = await pFinal(chai.request(server)
-      .get(Constants.RULES_PATH + '/1337')
+    const err = await chai.request(server)
+      .get(`${Constants.RULES_PATH}/1337`)
       .set('Accept', 'application/json')
-      .set(...headerAuth(jwt)));
-    expect(err.response.status).toEqual(404);
+      .set(...headerAuth(jwt));
+    expect(err.status).toEqual(404);
   });
 
 
   it('modifies this rule', async () => {
     let res = await chai.request(server)
-      .put(Constants.RULES_PATH + '/' + ruleId)
+      .put(`${Constants.RULES_PATH}/${ruleId}`)
       .set('Accept', 'application/json')
       .set(...headerAuth(jwt))
       .send(numberTestRule);
@@ -292,37 +393,36 @@ describe('rules engine', function() {
     expect(Array.isArray(res.body)).toBeTruthy();
     expect(res.body.length).toEqual(1);
     expect(res.body[0]).toMatchObject(numberTestRule);
-
   });
 
   it('deletes this rule', async () => {
     await deleteRule(ruleId);
 
-    let res = await chai.request(server)
+    const res = await chai.request(server)
       .get(Constants.RULES_PATH)
       .set('Accept', 'application/json')
-      .set(...headerAuth(jwt))
+      .set(...headerAuth(jwt));
     expect(res.status).toEqual(200);
     expect(Array.isArray(res.body)).toBeTruthy();
     expect(res.body.length).toEqual(0);
   });
 
   it('fails to delete a nonexistent rule', async () => {
-    const err = await pFinal(chai.request(server)
-      .delete(Constants.RULES_PATH + '/0')
+    const err = await chai.request(server)
+      .delete(`${Constants.RULES_PATH}/0`)
       .set('Accept', 'application/json')
       .set(...headerAuth(jwt))
-      .send());
-    expect(err.response.status).toEqual(404);
+      .send();
+    expect(err.status).toEqual(404);
   });
 
   it('fails to modify a nonexistent rule', async () => {
-    const err = await pFinal(chai.request(server)
-      .put(Constants.RULES_PATH + '/0')
+    const err = await chai.request(server)
+      .put(`${Constants.RULES_PATH}/0`)
       .set('Accept', 'application/json')
       .set(...headerAuth(jwt))
-      .send(testRule));
-    expect(err.response.status).toEqual(404);
+      .send(testRule);
+    expect(err.status).toEqual(404);
   });
 
   it('creates and simulates a disabled rule', async () => {
@@ -338,13 +438,13 @@ describe('rules engine', function() {
     const ruleId = res.body.id;
 
     res = await chai.request(server)
-      .put(Constants.THINGS_PATH + '/' + thingLight1.id + '/properties/on')
+      .put(`${Constants.THINGS_PATH}/${thingLight1.id}/properties/on`)
       .set('Accept', 'application/json')
       .set(...headerAuth(jwt))
       .send({on: true});
 
     res = await chai.request(server)
-      .get(Constants.THINGS_PATH + '/' + thingLight2.id + '/properties/on')
+      .get(`${Constants.THINGS_PATH}/${thingLight2.id}/properties/on`)
       .set('Accept', 'application/json')
       .set(...headerAuth(jwt));
 
@@ -363,7 +463,7 @@ describe('rules engine', function() {
 
     expect(res.status).toEqual(200);
     expect(res.body).toHaveProperty('id');
-    let numberTestRuleId = res.body.id;
+    const numberTestRuleId = res.body.id;
 
     res = await chai.request(server)
       .post(Constants.RULES_PATH)
@@ -373,7 +473,7 @@ describe('rules engine', function() {
 
     expect(res.status).toEqual(200);
     expect(res.body).toHaveProperty('id');
-    let mixedTestRuleId = res.body.id;
+    const mixedTestRuleId = res.body.id;
 
     res = await chai.request(server)
       .get(Constants.RULES_PATH)
@@ -385,18 +485,18 @@ describe('rules engine', function() {
     expect(res.body[0]).toMatchObject(numberTestRule);
     expect(res.body[1]).toMatchObject(mixedTestRule);
 
-    let ws = await webSocketOpen(Constants.THINGS_PATH + `/${thingLight3.id}`,
-      jwt);
+    const ws = await webSocketOpen(`${Constants.THINGS_PATH}/${thingLight3.id}`,
+                                   jwt);
 
     // The chain we're expecting is light2.hue > 120 sets light3.bri to 30
     // which sets light3.on to true
     let [resPut, messages] = await Promise.all([
       chai.request(server)
-        .put(Constants.THINGS_PATH + '/' + thingLight2.id + '/properties/hue')
+        .put(`${Constants.THINGS_PATH}/${thingLight2.id}/properties/hue`)
         .set('Accept', 'application/json')
         .set(...headerAuth(jwt))
         .send({hue: 150}),
-      webSocketRead(ws, 2)
+      webSocketRead(ws, 2),
     ]);
     expect(resPut.status).toEqual(200);
 
@@ -404,20 +504,20 @@ describe('rules engine', function() {
     expect(messages.length).toEqual(2);
     expect(messages[0]).toMatchObject({
       messageType: Constants.PROPERTY_STATUS,
-      data: {bri: 30}
+      data: {bri: 30},
     });
     expect(messages[1]).toMatchObject({
       messageType: Constants.PROPERTY_STATUS,
-      data: {on: true}
+      data: {on: true},
     });
 
     [resPut, messages] = await Promise.all([
       chai.request(server)
-        .put(Constants.THINGS_PATH + '/' + thingLight2.id + '/properties/hue')
+        .put(`${Constants.THINGS_PATH}/${thingLight2.id}/properties/hue`)
         .set('Accept', 'application/json')
         .set(...headerAuth(jwt))
         .send({hue: 0}),
-      webSocketRead(ws, 1)
+      webSocketRead(ws, 1),
     ]);
     expect(resPut.status).toEqual(200);
 
@@ -425,7 +525,7 @@ describe('rules engine', function() {
     expect(messages.length).toEqual(1);
     expect(messages[0]).toMatchObject({
       messageType: Constants.PROPERTY_STATUS,
-      data: {bri: 100}
+      data: {bri: 100},
     });
 
     await deleteRule(numberTestRuleId);
@@ -433,39 +533,31 @@ describe('rules engine', function() {
     await webSocketClose(ws);
   });
 
-  function sleep(ms) {
-    return new Promise(res => {
-      setTimeout(res, ms);
-    });
+  async function getOn(lightId) {
+    const res = await chai.request(server)
+      .get(`${Constants.THINGS_PATH}/${lightId}/properties/on`)
+      .set('Accept', 'application/json')
+      .set(...headerAuth(jwt));
+    expect(res.status).toEqual(200);
+    return res.body.on;
+  }
+
+  async function setOn(lightId, on) {
+    const res = await chai.request(server)
+      .put(`${Constants.THINGS_PATH}/${lightId}/properties/on`)
+      .set('Accept', 'application/json')
+      .set(...headerAuth(jwt))
+      .send({on});
+    expect(res.status).toEqual(200);
   }
 
   it('creates and simulates an off rule', async () => {
-    // Both lights are on, light1 is turned off, turning light2 off. light2 is
-    // turned on, light1 is turned off (double activation), turning light2 off.
-    // light1 is turned on, turning light2 on.
-
-    async function getOn(lightId) {
-      let res = await chai.request(server)
-        .get(Constants.THINGS_PATH + '/' + lightId + '/properties/on')
-        .set('Accept', 'application/json')
-        .set(...headerAuth(jwt));
-      expect(res.status).toEqual(200);
-      return res.body.on;
-    }
-
-    async function setOn(lightId, on) {
-      let res = await chai.request(server)
-        .put(Constants.THINGS_PATH + '/' + lightId + '/properties/on')
-        .set('Accept', 'application/json')
-        .set(...headerAuth(jwt))
-        .send({on: on});
-      expect(res.status).toEqual(200);
-    }
+    // Both lights are on, light1 is turned off, turning light2 off
 
     await setOn(thingLight1.id, true);
     await setOn(thingLight2.id, true);
 
-    let res = await chai.request(server)
+    const res = await chai.request(server)
       .post(Constants.RULES_PATH)
       .set('Accept', 'application/json')
       .set(...headerAuth(jwt))
@@ -475,19 +567,14 @@ describe('rules engine', function() {
     const ruleId = res.body.id;
 
     await setOn(thingLight1.id, false);
-    await sleep(200);
-    expect(await getOn(thingLight2.id)).toEqual(false);
-
-    await setOn(thingLight2.id, true);
-    expect(await getOn(thingLight2.id)).toEqual(true);
-
-    await setOn(thingLight1.id, false);
-    await sleep(200);
-    expect(await getOn(thingLight2.id)).toEqual(false);
+    await waitForExpect(async () => {
+      expect(await getOn(thingLight2.id)).toEqual(false);
+    });
 
     await setOn(thingLight1.id, true);
-    await sleep(200);
-    expect(await getOn(thingLight2.id)).toEqual(true);
+    await waitForExpect(async () => {
+      expect(await getOn(thingLight2.id)).toEqual(true);
+    });
 
     await deleteRule(ruleId);
   });
@@ -502,28 +589,98 @@ describe('rules engine', function() {
     expect(res.body).toHaveProperty('id');
     const ruleId = res.body.id;
 
-    await sleep(200);
+    // Since the rule-engin uses the websocket API "ADD_EVENT_SUBSCRIPTION"
+    // for getting the Event, the websocket IO should process before add Event.
+    const setImmediatePromise = util.promisify(setImmediate);
+    await setImmediatePromise();
 
-    const Things = require('../../models/things');
-    const Event = require('../../models/event');
+    Events.add(new Event('surge',
+                         'oh no there is too much electricity',
+                         thingLight1.id));
 
-    let thing = await Things.getThing(thingLight1.id);
-    thing.dispatchEvent(new Event('surge',
-                                  'oh no there is too much electricity'));
-
-    await sleep(200);
-
-    res = await chai.request(server)
-      .get(Constants.THINGS_PATH + '/' + thingLight1.id +
-           Constants.ACTIONS_PATH)
-      .set('Accept', 'application/json')
-      .set(...headerAuth(jwt));
-    expect(res.status).toEqual(200);
-    expect(Array.isArray(res.body)).toBeTruthy();
-    expect(res.body.length).toEqual(1);
-    expect(res.body[0].name).toEqual('blink');
+    await waitForExpect(async () => {
+      res = await chai.request(server)
+        .get(`${Constants.THINGS_PATH}/${thingLight1.id
+        }${Constants.ACTIONS_PATH}`)
+        .set('Accept', 'application/json')
+        .set(...headerAuth(jwt));
+      expect(res.status).toEqual(200);
+      expect(Array.isArray(res.body)).toBeTruthy();
+      expect(res.body.length).toEqual(1);
+      expect(res.body[0]).toHaveProperty('blink');
+    });
 
     // dispatch event get action
+    await deleteRule(ruleId);
+  });
+
+  it('creates and simulates a multi-effect rule', async () => {
+    const res = await chai.request(server)
+      .post(Constants.RULES_PATH)
+      .set('Accept', 'application/json')
+      .set(...headerAuth(jwt))
+      .send(multiRule);
+    expect(res.status).toEqual(200);
+    expect(res.body).toHaveProperty('id');
+    const ruleId = res.body.id;
+
+    await setOn(thingLight1.id, true);
+    await waitForExpect(async () => {
+      expect(await getOn(thingLight2.id)).toEqual(true);
+      expect(await getOn(thingLight3.id)).toEqual(true);
+    });
+
+    await setOn(thingLight1.id, false);
+    await waitForExpect(async () => {
+      expect(await getOn(thingLight2.id)).toEqual(false);
+      expect(await getOn(thingLight3.id)).toEqual(false);
+    });
+
+    await deleteRule(ruleId);
+  });
+
+  it('creates and simulates a string trigger rule', async () => {
+    let res = await chai.request(server)
+      .post(Constants.RULES_PATH)
+      .set('Accept', 'application/json')
+      .set(...headerAuth(jwt))
+      .send(equalityRule);
+
+    expect(res.status).toEqual(200);
+    expect(res.body).toHaveProperty('id');
+    const ruleId = res.body.id;
+
+    res = await chai.request(server)
+      .put(`${Constants.THINGS_PATH}/light3/properties/color`)
+      .set('Accept', 'application/json')
+      .set(...headerAuth(jwt))
+      .send({color: '#00ff77'});
+    expect(res.status).toEqual(200);
+
+    await waitForExpect(async () => {
+      expect(await getOn(thingLight3.id)).toEqual(true);
+    });
+
+    await deleteRule(ruleId);
+  });
+
+  it('creates and simulates a multi trigger rule', async () => {
+    const res = await chai.request(server)
+      .post(Constants.RULES_PATH)
+      .set('Accept', 'application/json')
+      .set(...headerAuth(jwt))
+      .send(complexTriggerRule);
+
+    expect(res.status).toEqual(200);
+    expect(res.body).toHaveProperty('id');
+    const ruleId = res.body.id;
+
+    await setOn(thingLight1.id, true);
+
+    await waitForExpect(async () => {
+      expect(await getOn(thingLight3.id)).toEqual(true);
+    });
+
     await deleteRule(ruleId);
   });
 });

@@ -8,6 +8,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
+
+'use strict';
+
+const Constants = require('./constants');
 const JSONWebToken = require('./models/jsonwebtoken');
 
 const AUTH_TYPE = 'Bearer';
@@ -57,21 +61,73 @@ async function authenticate(req) {
   return await JSONWebToken.verifyJWT(sig);
 }
 
+function scopeAllowsRequest(scope, request) {
+  const requestPath = request.originalUrl;
+  if (!scope) {
+    return true;
+  }
+  const paths = scope.split(' ');
+  for (let path of paths) {
+    const parts = path.split(':');
+    if (parts.length !== 2) {
+      console.warn('Invalid scope', scope);
+      return false;
+    }
+    const access = parts[1];
+    const readwrite = access === Constants.READWRITE;
+    path = parts[0];
+    const allowedDirect = requestPath.startsWith(path);
+    const allowedThings = requestPath === Constants.THINGS_PATH &&
+      path.startsWith(Constants.THINGS_PATH);
+    const allowedCommands = requestPath === Constants.COMMANDS_PATH &&
+      path.startsWith(Constants.THINGS_PATH);
+    // Allow access to media only if scope covers all things
+    const allowedMedia = requestPath.startsWith(Constants.MEDIA_PATH) &&
+      path === Constants.THINGS_PATH;
+
+    if (allowedDirect || allowedThings || allowedCommands || allowedMedia) {
+      if (!readwrite && request.method !== 'GET' &&
+          request.method !== 'OPTIONS') {
+        return false;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
 function middleware() {
   return (req, res, next) => {
     authenticate(req, res).
       then((jwt) => {
         if (!jwt) {
-          res.sendStatus(401);
+          res.status(401).end();
           return;
         }
+        let scope = jwt.payload.scope;
+        if (jwt.payload.role === Constants.AUTHORIZATION_CODE) {
+          scope = `${Constants.OAUTH_PATH}:${Constants.READWRITE}`;
+        }
+        if (!scopeAllowsRequest(scope, req)) {
+          res.status(401).send(
+            `Token of role ${jwt.payload.role} used out of scope: ${scope}`);
+          return;
+        }
+        if (jwt.payload.role !== Constants.USER_TOKEN) {
+          if (!jwt.payload.scope) {
+            res.status(400)
+              .send('Token must contain scope');
+            return;
+          }
+        }
+
         req.jwt = jwt;
         next();
       }).
       catch((err) => {
         console.error('error running jwt middleware', err.stack);
         next(err);
-      })
+      });
   };
 }
 

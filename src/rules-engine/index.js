@@ -4,20 +4,17 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const PromiseRouter = require('express-promise-router');
-const Settings = require('../models/settings');
 
 const APIError = require('./APIError');
 const Database = require('./Database');
 const Engine = require('./Engine');
-const JSONWebToken = require('../models/jsonwebtoken');
 const Rule = require('./Rule');
 
 const index = PromiseRouter();
-
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
-let engine = new Engine();
+const engine = new Engine();
 
 /**
  * Express middleware for extracting rules from the bodies of requests
@@ -38,7 +35,7 @@ function parseRuleFromBody(req, res, next) {
   let rule = null;
   try {
     rule = Rule.fromDescription(req.body);
-  } catch(e) {
+  } catch (e) {
     res.status(400).send(new APIError('Invalid rule', e).toString());
     return;
   }
@@ -46,54 +43,51 @@ function parseRuleFromBody(req, res, next) {
   next();
 }
 
-index.get('/', async function(req, res) {
-  let rules = await engine.getRules();
-  res.send(rules.map(rule => {
+index.get('/', async (req, res) => {
+  const rules = await engine.getRules();
+  res.send(rules.map((rule) => {
     return rule.toDescription();
   }));
 });
 
 
-index.get('/:id', async function(req, res) {
+index.get('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const rule = await engine.getRule(id);
     res.send(rule.toDescription());
-  } catch(e) {
+  } catch (e) {
     res.status(404).send(
       new APIError('Engine failed to get rule', e).toString());
   }
 });
 
-index.post('/', parseRuleFromBody, async function(req, res) {
-  let ruleId = await engine.addRule(req.rule);
+index.post('/', parseRuleFromBody, async (req, res) => {
+  const ruleId = await engine.addRule(req.rule);
   res.send({id: ruleId});
 });
 
-index.put('/:id', parseRuleFromBody, async function(req, res) {
+index.put('/:id', parseRuleFromBody, async (req, res) => {
   try {
     await engine.updateRule(parseInt(req.params.id), req.rule);
     res.send({});
-  } catch(e) {
+  } catch (e) {
     res.status(404).send(
       new APIError('Engine failed to update rule', e).toString());
   }
 });
 
-index.delete('/:id', async function(req, res) {
+index.delete('/:id', async (req, res) => {
   try {
-    await engine.deleteRule(req.params.id)
+    await engine.deleteRule(req.params.id);
     res.send({});
-  } catch(e) {
+  } catch (e) {
     res.status(404).send(
       new APIError('Engine failed to delete rule', e).toString());
   }
 });
 
-index.configure = async function(gatewayHref) {
-  await Settings.set('RulesEngine.gateway', gatewayHref);
-  await Settings.set('RulesEngine.jwt', await JSONWebToken.issueToken(-1));
-
+index.configure = async () => {
   await Database.open();
   await engine.getRules();
 };

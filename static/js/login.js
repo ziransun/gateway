@@ -7,12 +7,13 @@
  */
 'use strict';
 
-(function() {
+const API = require('./api');
 
-  var form = document.getElementById('login-form');
-  var email = document.getElementById('email');
-  var password = document.getElementById('password');
-  var errorSubmission = document.getElementById('error-submission');
+(function() {
+  const form = document.getElementById('login-form');
+  const email = document.getElementById('email');
+  const password = document.getElementById('password');
+  const errorSubmission = document.getElementById('error-submission');
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -21,10 +22,8 @@
     const emailValue = email.value;
     const passwordValue = password.value;
 
-    window.API.login(emailValue, passwordValue).
+    API.login(emailValue, passwordValue).
       then(() => {
-        console.log('~~~ log in success ~~~');
-
         const search = window.location.search;
         const match = search.match(/url=([^=&]+)/);
 
@@ -40,6 +39,5 @@
         errorSubmission.textContent = err.message;
         console.error(err);
       });
-  })
-
+  });
 })();

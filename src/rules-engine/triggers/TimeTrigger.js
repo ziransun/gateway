@@ -4,6 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const Events = require('../Events');
 const Trigger = require('./Trigger');
 
@@ -12,9 +14,10 @@ const Trigger = require('./Trigger');
  */
 class TimeTrigger extends Trigger {
   constructor(desc) {
-    super();
+    super(desc);
     this.time = desc.time;
-    this.sendStateChanged = this.sendStateChanged.bind(this);
+    this.sendOn = this.sendOn.bind(this);
+    this.sendOff = this.sendOff.bind(this);
   }
 
   /**
@@ -32,12 +35,12 @@ class TimeTrigger extends Trigger {
   }
 
   scheduleNext() {
-    let parts = this.time.split(':');
-    let hours = parseInt(parts[0], 10);
-    let minutes = parseInt(parts[1], 10);
+    const parts = this.time.split(':');
+    const hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1], 10);
 
     // Time is specified in UTC
-    let nextTime = new Date();
+    const nextTime = new Date();
     nextTime.setUTCHours(hours, minutes, 0, 0);
 
     if (nextTime.getTime() < Date.now()) {
@@ -48,12 +51,17 @@ class TimeTrigger extends Trigger {
     if (this.timeout) {
       clearTimeout(this.timeout);
     }
-    this.timeout = setTimeout(this.sendStateChanged,
+    this.timeout = setTimeout(this.sendOn,
                               nextTime.getTime() - Date.now());
   }
 
-  sendStateChanged() {
+  sendOn() {
     this.emit(Events.STATE_CHANGED, {on: true, value: Date.now()});
+    this.timeout = setTimeout(this.sendOff, 60 * 1000);
+  }
+
+  sendOff() {
+    this.emit(Events.STATE_CHANGED, {on: false, value: Date.now()});
     this.scheduleNext();
   }
 

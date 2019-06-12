@@ -11,20 +11,18 @@
 'use strict';
 
 const express = require('express');
-const TunnelSetup = require('../tunnel_setup');
 const Constants = require('../constants');
+const TunnelService = require('../ssltunnel');
 
 const RootController = express.Router();
 
 /**
  * Get the home page.
  */
-RootController.get('/', TunnelSetup.isTunnelSet,
-  function(request, response) {
-    response.sendFile('index.html', {
-      root: Constants.VIEWS_PATH
-    });
-  }
-);
+RootController.get('/', TunnelService.isTunnelSet, (request, response) => {
+  response.sendFile('index.html', {
+    root: Constants.BUILD_STATIC_PATH,
+  });
+});
 
 module.exports = RootController;

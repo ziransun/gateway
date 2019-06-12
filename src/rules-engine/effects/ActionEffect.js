@@ -4,10 +4,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.*
  */
 
+'use strict';
+
 const assert = require('assert');
-const fetch = require('node-fetch');
+
+const Action = require('../../models/action');
+const Actions = require('../../models/actions');
+const AddonManager = require('../../addon-manager');
 const Effect = require('./Effect');
-const Settings = require('../../models/settings');
+const Things = require('../../models/things');
 
 /**
  * An Effect which creates an action
@@ -36,7 +41,7 @@ class ActionEffect extends Effect {
       {
         thing: this.thing,
         action: this.action,
-        parameters: this.parameters
+        parameters: this.parameters,
       }
     );
   }
@@ -53,26 +58,15 @@ class ActionEffect extends Effect {
   }
 
   async createAction() {
-    let descr = {
-      name: this.action,
-      parameters: this.parameters
-    };
+    try {
+      const thing = await Things.getThing(this.thing);
 
-    let href = await Settings.get('RulesEngine.gateway') + this.thing.href +
-      '/actions';
-    let jwt = await Settings.get('RulesEngine.jwt');
-
-    let res = await fetch(href, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        Authorization: 'Bearer ' + jwt,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(descr),
-    });
-    if (!res.ok) {
-      console.warn('Unable to dispatch action', res);
+      const action = new Action(this.action, this.parameters, thing);
+      await Actions.add(action);
+      await AddonManager.requestAction(this.thing, action.id, this.action,
+                                       this.parameters);
+    } catch (e) {
+      console.warn('Unable to dispatch action', e);
     }
   }
 }

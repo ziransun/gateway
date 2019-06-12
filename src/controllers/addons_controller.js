@@ -1,15 +1,20 @@
+'use strict';
+
 const PromiseRouter = require('express-promise-router');
 const AddonManager = require('../addon-manager');
 const Settings = require('../models/settings');
+const UserProfile = require('../user-profile');
+const fs = require('fs');
+const path = require('path');
 
 const AddonsController = PromiseRouter();
 
 AddonsController.get('/', async (request, response) => {
-  Settings.getAddonSettings().then(function(result) {
-    if (result === undefined) {
+  Settings.getAddonSettings().then((result) => {
+    if (typeof result === 'undefined') {
       response.status(404).json([]);
     } else {
-      let installedAddons = [];
+      const installedAddons = [];
       for (const setting of result) {
         // Remove the leading 'addons.' from the settings key to get the
         // package name.
@@ -25,22 +30,57 @@ AddonsController.get('/', async (request, response) => {
 
       response.status(200).json(installedAddons);
     }
-  }).catch(function(e) {
+  }).catch((e) => {
     console.error('Failed to get add-on settings.');
     console.error(e);
     response.status(400).send(e);
   });
 });
 
+AddonsController.get('/:addonName/license', async (request, response) => {
+  const addonName = request.params.addonName;
+  const addonDir = path.join(UserProfile.addonsDir, addonName);
+
+  fs.readdir(addonDir, (err, files) => {
+    if (err) {
+      response.status(404).send(err);
+      return;
+    }
+
+    const licenses = files.filter((f) => {
+      return /^LICENSE(\..*)?$/.test(f) &&
+        fs.lstatSync(path.join(addonDir, f)).isFile();
+    });
+
+    if (licenses.length === 0) {
+      response.status(404).send('License not found');
+      return;
+    }
+
+    fs.readFile(
+      path.join(addonDir, licenses[0]),
+      {encoding: 'utf8'},
+      (err, data) => {
+        if (err) {
+          response.status(404).send(err);
+          return;
+        }
+
+        response.status(200).type('text/plain').send(data);
+      }
+    );
+  });
+});
+
 AddonsController.put('/:addonName', async (request, response) => {
   const addonName = request.params.addonName;
 
-  if (!request.body || request.body['enabled'] === undefined) {
+  if (!request.body || !request.body.hasOwnProperty('enabled')) {
     response.status(400).send('Enabled property not defined');
     return;
   }
 
-  const enabled = request.body['enabled'];
+  const enabled = request.body.enabled;
 
   const key = `addons.${addonName}`;
 
@@ -51,7 +91,7 @@ AddonsController.put('/:addonName', async (request, response) => {
       throw new Error('Setting is undefined.');
     }
   } catch (e) {
-    console.error('Failed to get current settings for add-on ' + addonName);
+    console.error(`Failed to get current settings for add-on ${addonName}`);
     console.error(e);
     response.status(400).send(e);
     return;
@@ -61,7 +101,7 @@ AddonsController.put('/:addonName', async (request, response) => {
   try {
     await Settings.set(key, current);
   } catch (e) {
-    console.error('Failed to set settings for add-on ' + addonName);
+    console.error(`Failed to set settings for add-on ${addonName}`);
     console.error(e);
     response.status(400).send(e);
     return;
@@ -74,9 +114,59 @@ AddonsController.put('/:addonName', async (request, response) => {
       await AddonManager.unloadAddon(addonName);
     }
 
-    response.status(200).json({'enabled': enabled});
+    response.status(200).json({enabled});
   } catch (e) {
-    console.error('Failed to toggle add-on ' + addonName);
+    console.error(`Failed to toggle add-on ${addonName}`);
+    console.error(e);
+    response.status(400).send(e);
+  }
+});
+
+AddonsController.put('/:addonName/config', async (request, response) => {
+  const addonName = request.params.addonName;
+
+  if (!request.body || !request.body.hasOwnProperty('config')) {
+    response.status(400).send('Config property not defined');
+    return;
+  }
+
+  const config = request.body.config;
+
+  const key = `addons.${addonName}`;
+
+  let current;
+  try {
+    current = await Settings.get(key);
+    if (typeof current === 'undefined') {
+      throw new Error('Setting is undefined.');
+    }
+  } catch (e) {
+    console.error(`Failed to get current settings for add-on ${addonName}`);
+    console.error(e);
+    response.status(400).send(e);
+    return;
+  }
+
+  current.moziot.config = config;
+  try {
+    await Settings.set(key, current);
+  } catch (e) {
+    console.error(`Failed to set settings for add-on ${addonName}`);
+    console.error(e);
+    response.status(400).send(e);
+    return;
+  }
+
+  try {
+    await AddonManager.unloadAddon(addonName, true);
+
+    if (await AddonManager.addonEnabled(addonName)) {
+      await AddonManager.loadAddon(addonName);
+    }
+
+    response.status(200).json({config});
+  } catch (e) {
+    console.error(`Failed to apply config add-on ${addonName}`);
     console.error(e);
     response.status(400).send(e);
   }
@@ -97,7 +187,9 @@ AddonsController.post('/', async (request, response) => {
 
   try {
     await AddonManager.installAddonFromUrl(name, url, checksum, true);
-    response.sendStatus(200);
+    const key = `addons.${name}`;
+    const savedSettings = await Settings.get(key);
+    response.status(200).json(savedSettings);
   } catch (e) {
     response.status(400).send(e);
   }
